@@ -1,0 +1,1999 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Woolmeadow</title>
+<meta name="description" content="A tiny floating meadow of sheep. Click a sheep!">
+<meta name="theme-color" content="#f5eee2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23cfe8f5'/%3E%3Cg fill='%23fffaf2'%3E%3Ccircle cx='24' cy='32' r='10'/%3E%3Ccircle cx='34' cy='26' r='10'/%3E%3Ccircle cx='40' cy='35' r='9'/%3E%3Ccircle cx='28' cy='39' r='9'/%3E%3C/g%3E%3Cellipse cx='47' cy='28' rx='6' ry='7' fill='%234b403f'/%3E%3Cg stroke='%234b403f' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M26 46v7M36 46v7'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #5b4a43;
+    --muted: #9c8b80;
+    --card: #fffaf3;
+    --line: #f0e2d0;
+    --chip: #f5ede3;
+    --pink: #ffd8e0;
+    --pink-ink: #9c4459;
+    --blue: #dcefff;
+    --blue-ink: #3f6b8f;
+    --green: #e0f3d6;
+    --green-ink: #4a7a3a;
+    --red: #ffe1da;
+    --red-ink: #a8503e;
+    --shadow: 0 10px 28px rgba(122, 92, 62, 0.18), 0 2px 6px rgba(122, 92, 62, 0.12);
+    --font: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #f5eee2; color: var(--ink); font-family: var(--font);
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; outline: none; }
+  canvas.hovering { cursor: pointer; }
+  canvas.placing { cursor: crosshair; }
+
+  /* --- Title / hint line: fades out after a few seconds --- */
+  #hint {
+    position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    background: rgba(255, 250, 243, 0.86); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 18px; box-shadow: var(--shadow); text-align: center; white-space: nowrap;
+    pointer-events: none; transition: opacity 1.2s ease, transform 1.2s ease;
+    max-width: calc(100vw - 32px);
+  }
+  #hint b { font-weight: 700; letter-spacing: 0.01em; }
+  #hint span { color: var(--muted); font-size: 13px; margin-left: 8px; }
+  #hint.gone { opacity: 0; transform: translate(-50%, -8px); }
+  @media (max-width: 480px) { #hint span { display: none; } }
+
+  /* --- Floating per-sheep toolbar --- */
+  #toolbar {
+    position: fixed; left: 0; top: 0; width: 252px; z-index: 5;
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+    box-shadow: var(--shadow); padding: 10px 10px 10px; user-select: none;
+    opacity: 0; pointer-events: none; transition: opacity 0.18s ease;
+    will-change: transform;
+  }
+  #toolbar.show { opacity: 1; pointer-events: auto; }
+  #toolbar::after {
+    content: ""; position: absolute; left: var(--arrow-x, 50%); bottom: -7px; width: 12px; height: 12px;
+    background: var(--card); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    transform: translateX(-50%) rotate(45deg);
+  }
+  #toolbar.below::after { bottom: auto; top: -7px; transform: translateX(-50%) rotate(225deg); }
+  .tb-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px 6px; }
+  .tb-name { font-weight: 700; font-size: 15px; }
+  .tb-close {
+    border: 0; background: none; color: var(--muted); font: inherit; font-size: 18px; line-height: 1;
+    cursor: pointer; padding: 2px 4px; border-radius: 8px;
+  }
+  .tb-close:hover { background: var(--chip); }
+  .tb-readout {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tb-readout div {
+    background: var(--chip); border-radius: 10px; padding: 4px 8px; display: flex;
+    justify-content: space-between; align-items: baseline; font-size: 13px;
+  }
+  .tb-readout i { font-style: normal; color: var(--muted); font-size: 11px; margin-right: 6px; }
+  .tb-readout .xyz { grid-column: 1 / -1; justify-content: center; color: var(--muted); font-size: 11px; background: none; padding: 0; }
+  .tb-row { display: grid; gap: 4px; }
+  .tb-states { grid-template-columns: repeat(4, 1fr); background: var(--chip); border-radius: 12px; padding: 3px; margin-bottom: 6px; }
+  .tb-actions { grid-template-columns: repeat(3, 1fr); }
+  #toolbar button.b {
+    font: inherit; font-size: 11.5px; color: var(--ink); border: 0; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 6px 2px 5px; border-radius: 10px; background: transparent;
+    transition: background 0.15s, transform 0.1s;
+  }
+  #toolbar button.b svg { width: 18px; height: 18px; }
+  #toolbar button.b:hover { background: rgba(255, 255, 255, 0.9); }
+  #toolbar button.b:active { transform: scale(0.94); }
+  #toolbar .tb-states button.b.active { background: var(--pink); color: var(--pink-ink); }
+  #toolbar .tb-actions button.b { background: var(--blue); color: var(--blue-ink); }
+  #toolbar .tb-actions button.b[data-act="duplicate"] { background: var(--green); color: var(--green-ink); }
+  #toolbar .tb-actions button.b[data-act="delete"] { background: var(--red); color: var(--red-ink); }
+  #toolbar .tb-actions button.b:hover { filter: brightness(1.03) saturate(1.1); }
+  #toolbar .tb-actions button.b.active { box-shadow: inset 0 0 0 2px var(--blue-ink); }
+  #toolbar button.b:disabled { opacity: 0.45; cursor: default; }
+  .tb-tip { font-size: 11.5px; color: var(--blue-ink); text-align: center; padding: 6px 2px 0; display: none; }
+  #toolbar.placing .tb-tip { display: block; }
+
+  /* --- Bottom-right dock: count, sound, add --- */
+  #dock {
+    position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 8px; z-index: 4;
+  }
+  #dock .pill {
+    background: rgba(255, 250, 243, 0.9); border: 1px solid var(--line); border-radius: 999px;
+    box-shadow: var(--shadow); height: 40px; display: flex; align-items: center; padding: 0 14px;
+    font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  #dock button {
+    font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    height: 40px; min-width: 40px; border-radius: 999px; box-shadow: var(--shadow); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px;
+    transition: transform 0.1s;
+  }
+  #dock button:active { transform: scale(0.94); }
+  #dock button svg { width: 18px; height: 18px; }
+  #add { background: var(--pink) !important; color: var(--pink-ink) !important; font-weight: 700; }
+  #add:disabled { opacity: 0.5; cursor: default; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: max(70px, calc(env(safe-area-inset-bottom) + 70px));
+    transform: translate(-50%, 8px); background: rgba(91, 74, 67, 0.92); color: #fffaf3;
+    padding: 9px 16px; border-radius: 999px; font-size: 13.5px; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s; max-width: calc(100vw - 32px); text-align: center; z-index: 6;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  #nogl {
+    position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+    background: #f5eee2; z-index: 10;
+  }
+  #nogl[hidden] { display: none; }
+  button:focus-visible { outline: 2px solid var(--blue-ink); outline-offset: 2px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="hint"><b>Woolmeadow</b> &middot; Click a sheep! <span>drag to look around &middot; scroll to zoom</span></div>
+
+<div id="toolbar" role="toolbar" aria-label="Sheep controls">
+  <div class="tb-head">
+    <span class="tb-name" id="tbName">Sheep</span>
+    <button class="tb-close" data-act="close" aria-label="Deselect (Esc)" title="Deselect (Esc)">&times;</button>
+  </div>
+  <div class="tb-readout" aria-live="off">
+    <div title="Height of the sheep above the grass, live"><i>height</i><span id="tbH">0.00</span></div>
+    <div title="Ground distance to the origin marker"><i>to &#9678;</i><span id="tbD">0.00</span></div>
+    <div class="xyz" id="tbXYZ">x 0.00 &middot; z 0.00</div>
+  </div>
+  <div class="tb-row tb-states">
+    <button class="b" data-act="idle" title="Idle (1)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="6"/><path d="M9.5 12.5h.01M14.5 12.5h.01M10 15.5c1.2.8 2.8.8 4 0"/></svg>Idle</button>
+    <button class="b" data-act="graze" title="Graze (2)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16M7 20c0-4-2-7-2-7M12 20c0-6 1-10 1-10M17 20c0-3 2-6 2-6M9.5 20c0-2.5-1-4.5-1-4.5M14.8 20c0-2 1.2-4 1.2-4"/></svg>Graze</button>
+    <button class="b" data-act="walk" title="Walk (3)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="8" cy="15" rx="2.2" ry="3"/><ellipse cx="16" cy="9" rx="2.2" ry="3"/><path d="M7 20.5h2M15 14.5h2"/></svg>Walk</button>
+    <button class="b" data-act="jump" title="Jump (4)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19c3-9 13-9 16 0"/><path d="M12 4v7M9 7l3-3 3 3"/></svg>Jump</button>
+  </div>
+  <div class="tb-row tb-actions">
+    <button class="b" data-act="move" title="Move: then click grass (M)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg>Move</button>
+    <button class="b" data-act="duplicate" title="Duplicate (D)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="3"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Duplicate</button>
+    <button class="b" data-act="delete" title="Delete (Del)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6.5 7l1 12.5h9l1-12.5M10 11v5M14 11v5"/></svg>Delete</button>
+  </div>
+  <div class="tb-tip" id="tbTip">Click somewhere grassy &middot; Esc to cancel</div>
+</div>
+
+<div id="dock">
+  <span class="pill" id="count">0 sheep</span>
+  <button id="mute" aria-label="Sound on" title="Sound">
+    <svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path class="wave" d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7.5a6.5 6.5 0 0 1 0 9"/><path class="cross" d="M16 10l4 4M20 10l-4 4" style="display:none"/></svg>
+  </button>
+  <button id="add" aria-label="Add a sheep" title="Add a sheep">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Sheep
+  </button>
+</div>
+
+<div id="toast" role="status"></div>
+<div id="nogl" hidden><div><b>This meadow needs WebGL.</b><br>Try a recent Chrome, Safari, Firefox or Edge with hardware acceleration on.</div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =====================================================================
+   0. Small maths helpers
+   ===================================================================== */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+// Frame-rate independent exponential smoothing toward a target.
+const damp = (cur, target, rate, dt) => lerp(cur, target, 1 - Math.exp(-rate * dt));
+const angleDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+const easeOutBack = (t) => { const c = 1.9; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+
+// Seeded PRNG so the meadow's layout is identical on every load.
+function mulberry32(a) {
+  return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const rng = mulberry32(20261029);
+const rr = (a, b) => a + (b - a) * rng();          // seeded: scenery
+const rnd = (a, b) => a + (b - a) * Math.random(); // unseeded: behaviour
+const pick = (arr, r = Math.random) => arr[Math.floor(r() * arr.length)];
+
+// Cheap 2D value noise for colour variation.
+const hash2 = (x, z) => { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); };
+function vnoise(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  return lerp(lerp(hash2(ix, iz), hash2(ix + 1, iz), ux), lerp(hash2(ix, iz + 1), hash2(ix + 1, iz + 1), ux), uz);
+}
+
+/* =====================================================================
+   1. The meadow's shape: island outline, stream, road, height field
+      Everything that decides "where can a sheep stand" lives here.
+   ===================================================================== */
+const HX = 11, HZ = 7.5, CORNER = 2.6;   // island half-size and corner radius
+const STREAM_BED = 0.7, STREAM_BANK = 1.55; // channel floor / top of bank (distance from centre line)
+const WATER_HW = 1.3, WATER_Y = -0.1;    // water ribbon half-width and surface height
+const ROAD_HW = 0.8;                     // half-width of the dirt road
+const SHEEP_MARGIN = 0.55;               // how far a sheep's centre keeps from anything forbidden
+
+// The stream runs back-to-front (along z) and wiggles in x.
+const streamX = (z) => -4.0 + 1.25 * Math.sin(z * 0.42 + 0.5) + 0.35 * Math.sin(z * 0.95 + 1.7);
+const streamDX = (z) => 1.25 * 0.42 * Math.cos(z * 0.42 + 0.5) + 0.35 * 0.95 * Math.cos(z * 0.95 + 1.7);
+// The road runs left-to-right (along x) and wiggles in z.
+const roadZ = (x) => 2.7 + 0.65 * Math.sin(x * 0.26 + 0.3) + 0.2 * Math.sin(x * 0.7);
+const roadDZ = (x) => 0.65 * 0.26 * Math.cos(x * 0.26 + 0.3) + 0.2 * 0.7 * Math.cos(x * 0.7);
+
+// Perpendicular distance to each centre line (first-order: offset / sqrt(1 + slope²)).
+const streamDist = (x, z) => Math.abs(x - streamX(z)) / Math.hypot(1, streamDX(z));
+const roadDist = (x, z) => Math.abs(z - roadZ(x)) / Math.hypot(1, roadDZ(x));
+
+// Signed distance to the rounded-rectangle island outline (negative = inside).
+function sdIsland(x, z) {
+  const qx = Math.abs(x) - (HX - CORNER), qz = Math.abs(z) - (HZ - CORNER);
+  return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - CORNER;
+}
+
+// Height of the grass at (x, z): gentle rolls, two hillocks, a carved stream channel, a flattened road.
+function groundY(x, z) {
+  const ds = streamDist(x, z), dr = roadDist(x, z);
+  const edge = smoothstep(0, 1.4, -sdIsland(x, z));
+  const streamMask = smoothstep(1.4, 2.6, ds);
+  const roadMask = 1 - smoothstep(ROAD_HW + 0.1, ROAD_HW + 1.0, dr);
+  let und = 0.14 * Math.sin(x * 0.45 + 0.8) * Math.cos(z * 0.5 - 0.3)
+          + 0.05 * Math.sin(x * 1.1 + z * 0.8) + 0.04 * Math.cos(z * 1.3 - x * 0.4);
+  und += 0.6 * Math.exp(-((x - 5.6) ** 2 + (z + 3.3) ** 2) / 7);  // the hill with the blossom tree
+  und += 0.3 * Math.exp(-((x + 8.4) ** 2 + (z + 3.6) ** 2) / 5);  // a small knoll across the stream
+  let y = und * edge * streamMask * (1 - roadMask);
+  y += -0.36 * (1 - smoothstep(STREAM_BED, STREAM_BANK, ds));
+  y -= 0.02 * roadMask;
+  return y;
+}
+
+// Four grass "regions" are separated by the stream and the road. A sheep only ever
+// walks within its own region, so it can never wade across either.
+const regionOf = (x, z) => (x > streamX(z) ? 1 : 0) | (z > roadZ(x) ? 2 : 0);
+
+const obstacles = []; // {x, z, r}: tree trunks, bushes, fence posts, rocks, the marker
+
+// The single walkability rule used by spawning, wandering, Move and Duplicate.
+function walkable(x, z, m = SHEEP_MARGIN) {
+  if (sdIsland(x, z) > -(m + 0.35)) return false;
+  if (streamDist(x, z) < STREAM_BANK + m - 0.1) return false;
+  if (roadDist(x, z) < ROAD_HW + m) return false;
+  for (const o of obstacles) if ((x - o.x) ** 2 + (z - o.z) ** 2 < (o.r + m) ** 2) return false;
+  return true;
+}
+
+// A straight walk is allowed only inside one region and only over walkable ground.
+// The check margin is a little looser than the target margin so a sheep nudged
+// slightly by a neighbour is not stranded.
+function pathClear(ax, az, bx, bz, m = SHEEP_MARGIN * 0.7) {
+  if (regionOf(ax, az) !== regionOf(bx, bz)) return false;
+  const len = Math.hypot(bx - ax, bz - az), steps = Math.max(1, Math.ceil(len / 0.2));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    if (!walkable(lerp(ax, bx, t), lerp(az, bz, t), m)) return false;
+  }
+  return true;
+}
+
+/* =====================================================================
+   2. Renderer, scene, camera, lights
+   ===================================================================== */
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  document.getElementById('nogl').hidden = false;
+  throw err;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog('#f5eee2', 70, 190);
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.5, 500);
+
+// Warm sun + soft sky/ground fill.
+const SUN_DIR = new THREE.Vector3(10, 18, 8).normalize();
+const sun = new THREE.DirectionalLight('#ffe7c7', 2.3);
+sun.position.copy(SUN_DIR).multiplyScalar(30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 70 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+scene.add(new THREE.HemisphereLight('#e2f1ff', '#d4bb92', 1.55));
+
+// Gradient sky dome: blue overhead, cream at the horizon, pale blue below the island.
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(200, 32, 16),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      uTop: { value: new THREE.Color('#8fc6ea') },
+      uHorizon: { value: new THREE.Color('#fdf1dc') },
+      uBottom: { value: new THREE.Color('#d3e7f3') },
+    },
+    vertexShader: /* glsl */`
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uTop, uHorizon, uBottom;
+      varying vec3 vDir;
+      void main() {
+        float y = vDir.y;
+        vec3 c = y > 0.0 ? mix(uHorizon, uTop, pow(smoothstep(0.0, 0.85, y), 0.75))
+                         : mix(uHorizon, uBottom, smoothstep(0.0, -0.6, y));
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  })
+);
+sky.renderOrder = -1;
+scene.add(sky);
+
+/* ---------------------------------------------------------------------
+   Cloud shadows: soft darkening blobs injected into the ground materials.
+   Each cloud's shadow is its centre projected along the sun direction.
+   --------------------------------------------------------------------- */
+const MAX_CLOUD_SHADOWS = 6;
+const cloudShadowUniform = { value: Array.from({ length: MAX_CLOUD_SHADOWS }, () => new THREE.Vector3(999, 999, 1)) };
+function withCloudShadows(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uClouds = cloudShadowUniform;
+    sh.vertexShader = 'varying vec3 vCloudW;\n' + sh.vertexShader.replace('#include <project_vertex>',
+      '#include <project_vertex>\n  vCloudW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = `varying vec3 vCloudW;\nuniform vec3 uClouds[${MAX_CLOUD_SHADOWS}];\n` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      float cloudShade = 0.0;
+      for (int i = 0; i < ${MAX_CLOUD_SHADOWS}; i++) {
+        vec3 c = uClouds[i];
+        cloudShade = max(cloudShade, 1.0 - smoothstep(c.z * 0.3, c.z, length(vCloudW.xz - c.xy)));
+      }
+      diffuseColor.rgb *= 1.0 - 0.17 * cloudShade;`);
+  };
+  mat.customProgramCacheKey = () => 'cloudShadow';
+  return mat;
+}
+
+const lambert = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
+const col = (hex) => new THREE.Color(hex);
+
+/* =====================================================================
+   3. The island: grass top, grass lip, layered earth, rocky underside
+   ===================================================================== */
+const island = new THREE.Group();
+scene.add(island);
+
+// Map a point in a square corner cell onto the rounded corner, so the regular
+// grid's boundary traces the rounded outline exactly.
+function roundCorner(x, z) {
+  const cx = HX - CORNER, cz = HZ - CORNER;
+  const dx = Math.abs(x) - cx, dz = Math.abs(z) - cz;
+  if (dx <= 0 || dz <= 0) return [x, z];
+  const len = Math.hypot(dx, dz), k = Math.max(dx, dz) / len;
+  return [Math.sign(x) * (cx + dx * k), Math.sign(z) * (cz + dz * k)];
+}
+
+const GRASS = { a: col('#a3d17f'), b: col('#8cc072'), c: col('#bfe092'), bank: col('#7eaa63'), bed: col('#9dbfae'), mud: col('#b0a874') };
+function grassColor(x, z, y, out) {
+  const n = vnoise(x * 0.35 + 3, z * 0.35), n2 = vnoise(x * 1.3 + 5, z * 1.3 - 2);
+  out.copy(GRASS.a).lerp(GRASS.b, smoothstep(0.35, 0.75, n))
+     .lerp(GRASS.c, smoothstep(0.55, 0.95, n2) * 0.5 + smoothstep(0.15, 0.55, y) * 0.35);
+  const ds = streamDist(x, z);
+  out.lerp(GRASS.bank, (1 - smoothstep(1.4, 2.4, ds)) * 0.55);
+  out.lerp(GRASS.bed, 1 - smoothstep(0.9, 1.35, ds));
+  out.lerp(GRASS.mud, (1 - smoothstep(ROAD_HW + 0.2, ROAD_HW + 0.9, roadDist(x, z))) * 0.35);
+  return out;
+}
+
+let terrain; // raycast target for Move mode
+{
+  const NX = 66, NZ = 46;
+  const pos = [], colors = [], index = [];
+  const c = new THREE.Color();
+  for (let j = 0; j <= NZ; j++) {
+    for (let i = 0; i <= NX; i++) {
+      let x = -HX + (2 * HX * i) / NX, z = -HZ + (2 * HZ * j) / NZ;
+      if (i > 0 && i < NX && j > 0 && j < NZ) { // jitter interior vertices for a hand-cut look
+        x += (hash2(i, j) - 0.5) * 0.16; z += (hash2(j + 7, i + 3) - 0.5) * 0.16;
+      }
+      [x, z] = roundCorner(x, z);
+      const y = groundY(x, z);
+      pos.push(x, y, z);
+      grassColor(x, z, y, c); colors.push(c.r, c.g, c.b);
+    }
+  }
+  const id = (i, j) => j * (NX + 1) + i;
+  for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
+    const a = id(i, j), b = id(i + 1, j), cc = id(i, j + 1), d = id(i + 1, j + 1);
+    if ((i + j) % 2) index.push(a, cc, b, b, cc, d); else index.push(a, cc, d, a, d, b);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  terrain = new THREE.Mesh(g, withCloudShadows(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
+  terrain.receiveShadow = true;
+  island.add(terrain);
+
+  // Grass lip: a skirt from the grid's boundary down to the earth layer.
+  const loop = [];
+  for (let i = 0; i <= NX; i++) loop.push(id(i, 0));
+  for (let j = 1; j <= NZ; j++) loop.push(id(NX, j));
+  for (let i = NX - 1; i >= 0; i--) loop.push(id(i, NZ));
+  for (let j = NZ - 1; j >= 1; j--) loop.push(id(0, j));
+  const lp = [], lc = [];
+  const top = col('#8dbd6f'), bot = col('#6f9c58');
+  const P = (k) => [pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]];
+  for (let k = 0; k < loop.length; k++) {
+    const [ax, ay, az] = P(loop[k]), [bx, by, bz] = P(loop[(k + 1) % loop.length]);
+    const lipY = -0.5;
+    lp.push(ax, ay, az, bx, lipY, bz, bx, by, bz, ax, ay, az, ax, lipY, az, bx, lipY, bz);
+    for (const isTop of [1, 0, 1, 1, 0, 0]) { const cc2 = isTop ? top : bot; lc.push(cc2.r, cc2.g, cc2.b); }
+  }
+  const lg = new THREE.BufferGeometry();
+  lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3));
+  lg.setAttribute('color', new THREE.Float32BufferAttribute(lc, 3));
+  lg.computeVertexNormals();
+  const lip = new THREE.Mesh(lg, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }));
+  lip.receiveShadow = true;
+  island.add(lip);
+}
+
+// Layered earth slab under the lip, coloured in soft strata.
+function roundedRectShape(w, h, r) {
+  const s = new THREE.Shape();
+  s.moveTo(-w + r, -h); s.lineTo(w - r, -h); s.absarc(w - r, -h + r, r, -Math.PI / 2, 0);
+  s.lineTo(w, h - r); s.absarc(w - r, h - r, r, 0, Math.PI / 2);
+  s.lineTo(-w + r, h); s.absarc(-w + r, h - r, r, Math.PI / 2, Math.PI);
+  s.lineTo(-w, -h + r); s.absarc(-w + r, -h + r, r, Math.PI, Math.PI * 1.5);
+  return s;
+}
+{
+  const g = new THREE.ExtrudeGeometry(roundedRectShape(HX - 0.02, HZ - 0.02, CORNER), { depth: 1.8, steps: 6, bevelEnabled: false, curveSegments: 10 });
+  g.rotateX(Math.PI / 2);     // extrude direction now points down
+  g.translate(0, -0.45, 0);
+  const strata = ['#c99d6f', '#bb8d61', '#cfac82', '#ad7f56', '#9d704a', '#b48a63', '#8d6243'].map(col);
+  const p = g.attributes.position, colors = [];
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const band = clamp(Math.floor((-y - 0.45 + (vnoise(x * 0.6, z * 0.6) - 0.5) * 0.25) / 0.3), 0, strata.length - 1);
+    const c = strata[band].clone().multiplyScalar(0.94 + hash2(x * 3.1, z * 2.7 + y) * 0.1);
+    colors.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const earth = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  earth.receiveShadow = true;
+  island.add(earth);
+
+  // Rocky underside: tapering lumps, vertices displaced by a position hash so faces stay sealed.
+  const lump = (sx, sy, sz, x, y, z, hex, seed) => {
+    const lg = new THREE.IcosahedronGeometry(1, 1);
+    const lp = lg.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      const vx = lp.getX(i), vy = lp.getY(i), vz = lp.getZ(i);
+      const k = 1 + (hash2(vx * 13.1 + seed, vy * 7.7 + vz * 5.3) - 0.5) * 0.28;
+      lp.setXYZ(i, vx * k, vy * k, vz * k);
+    }
+    lg.computeVertexNormals();
+    const m = new THREE.Mesh(lg, lambert(hex));
+    m.scale.set(sx, sy, sz); m.position.set(x, y, z);
+    island.add(m);
+  };
+  lump(10.4, 1.7, 6.9, 0, -2.35, 0.2, '#a07552', 1);
+  lump(7.6, 2.4, 5.2, 0.6, -3.6, 0.6, '#916847', 2);
+  lump(4.8, 2.4, 3.6, 1.0, -5.5, 0.9, '#835c3f', 3);
+  lump(2.2, 1.8, 1.8, 1.4, -7.3, 1.0, '#77553b', 4);
+  lump(3.4, 1.8, 2.8, -6.5, -3.0, 2.2, '#9a7050', 5);
+  lump(2.8, 1.6, 2.4, 7.2, -3.0, 1.6, '#9a7050', 6);
+  lump(1.4, 1.1, 1.2, -5.2, -4.6, 3.0, '#8a6244', 7);
+}
+
+/* =====================================================================
+   4. Water: animated stream ribbon + a little waterfall off the front edge
+   ===================================================================== */
+const NOISE_GLSL = /* glsl */`
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+  }`;
+const waterUniforms = {
+  uTime: { value: 0 },
+  uDeep: { value: col('#6db4d6') },
+  uShallow: { value: col('#a6daee') },
+  uFoam: { value: col('#f7fcff') },
+};
+const waterMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, uniforms: waterUniforms,
+  vertexShader: /* glsl */`
+    uniform float uTime;
+    varying vec2 vUv; // x = distance along the stream, y = 0..1 across it
+    void main() {
+      vUv = uv;
+      vec3 p = position;
+      p.y += sin(uv.x * 2.3 - uTime * 1.7 + uv.y * 4.0) * 0.012 + sin(uv.x * 0.8 + uTime * 0.9) * 0.008;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`,
+  fragmentShader: /* glsl */`
+    uniform float uTime; uniform vec3 uDeep, uShallow, uFoam;
+    varying vec2 vUv;
+    ${NOISE_GLSL}
+    void main() {
+      float edge = min(vUv.y, 1.0 - vUv.y) * 2.0;           // 0 at the banks, 1 mid-stream
+      vec3 c = mix(uShallow, uDeep, smoothstep(0.15, 0.85, edge));
+      float flow = vUv.x * 1.6 - uTime * 0.55;               // scrolls downstream
+      float n = noise(vec2(flow, vUv.y * 6.0 + noise(vec2(flow * 0.5, vUv.y * 3.0)) * 1.6));
+      c = mix(c, vec3(1.0), smoothstep(0.66, 0.8, n) * 0.3);  // drifting light streaks
+      float fn = noise(vec2(vUv.x * 3.0 - uTime * 0.4, vUv.y * 12.0));
+      float foam = 1.0 - smoothstep(0.18, 0.34, edge + (fn - 0.5) * 0.14);
+      c = mix(c, uFoam, foam * 0.92);
+      gl_FragColor = vec4(c, mix(0.8, 0.96, foam));
+      #include <colorspace_fragment>
+    }`,
+});
+{
+  const pos = [], uv = [], index = [];
+  const ACROSS = 7, z0 = -HZ + 0.15, z1 = HZ, dz = 0.12;
+  let along = 0, prev = null, rows = 0;
+  for (let z = z0; z <= z1 + 1e-6; z += dz) {
+    const cx = streamX(z), s = streamDX(z), nl = Math.hypot(1, s);
+    const nx = 1 / nl, nz = -s / nl; // perpendicular to the tangent (s, 1)
+    if (prev) along += Math.hypot(cx - prev[0], z - prev[1]);
+    prev = [cx, z];
+    for (let k = 0; k < ACROSS; k++) {
+      const o = (k / (ACROSS - 1) - 0.5) * 2 * WATER_HW;
+      pos.push(cx + nx * o, WATER_Y, Math.min(z + nz * o, HZ));
+      uv.push(along, k / (ACROSS - 1));
+    }
+    rows++;
+  }
+  for (let r = 0; r < rows - 1; r++) for (let k = 0; k < ACROSS - 1; k++) {
+    const a = r * ACROSS + k, b = a + 1, c = a + ACROSS, d = c + 1;
+    index.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(index);
+  island.add(new THREE.Mesh(g, waterMat));
+}
+// Waterfall: a curved sheet spilling off the front edge, streaking downward and fading into sky.
+const fallMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: waterUniforms,
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform float uTime; uniform vec3 uShallow, uFoam;
+    varying vec2 vUv; // x across, y = 0 at the lip .. 1 at the bottom
+    ${NOISE_GLSL}
+    void main() {
+      float n = noise(vec2(vUv.x * 9.0, vUv.y * 3.0 - uTime * 2.4));
+      vec3 c = mix(uShallow, uFoam, smoothstep(0.45, 0.8, n) * 0.7 + (1.0 - smoothstep(0.0, 0.12, vUv.y)) * 0.8);
+      float a = (1.0 - smoothstep(0.3, 1.0, vUv.y)) * mix(0.5, 0.9, n);
+      a *= smoothstep(0.0, 0.3, min(vUv.x, 1.0 - vUv.x) * 2.0);
+      gl_FragColor = vec4(c, a);
+      #include <colorspace_fragment>
+    }`,
+});
+{
+  const g = new THREE.PlaneGeometry(1, 1, 6, 18);
+  const p = g.attributes.position, uv = g.attributes.uv;
+  const cx = streamX(HZ);
+  for (let i = 0; i < p.count; i++) {
+    const u = uv.getX(i), t = 1 - uv.getY(i);
+    p.setXYZ(i, cx + (u - 0.5) * 2 * WATER_HW * 0.92, WATER_Y - t * 3.8, HZ + 0.05 + 0.15 * t + 0.7 * t * t);
+    uv.setXY(i, u, t);
+  }
+  island.add(new THREE.Mesh(g, fallMat));
+}
+
+/* =====================================================================
+   5. The dirt road (two ribbons with a gap for the bridge)
+   ===================================================================== */
+// Where the road crosses the stream: solve x = streamX(roadZ(x)) by fixed-point iteration.
+let bridgeX = -4;
+for (let i = 0; i < 30; i++) bridgeX = streamX(roadZ(bridgeX));
+let gapA = bridgeX, gapB = bridgeX;
+while (streamDist(gapA, roadZ(gapA)) < STREAM_BANK + 0.05) gapA -= 0.02;
+while (streamDist(gapB, roadZ(gapB)) < STREAM_BANK + 0.05) gapB += 0.02;
+
+const roadMat = withCloudShadows(new THREE.MeshLambertMaterial({
+  vertexColors: true, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+}));
+function buildRoadRibbon(x0, x1) {
+  // Cross-section: grassy shoulder, verge, rut, crown, rut, verge, grassy shoulder.
+  const OFF = [-1.0, -0.84, -0.55, -0.3, 0, 0.3, 0.55, 0.84, 1.0];
+  const CLR = ['#b7bd84', '#cfaa78', '#dcbd8f', '#c99f71', '#e4c89c', '#c99f71', '#dcbd8f', '#cfaa78', '#b7bd84'].map(col);
+  const pos = [], colors = [], index = [];
+  let rows = 0;
+  const steps = Math.max(2, Math.ceil((x1 - x0) / 0.22));
+  for (let s = 0; s <= steps; s++) {
+    const x = lerp(x0, x1, s / steps), cz = roadZ(x), d = roadDZ(x), nl = Math.hypot(1, d);
+    const nx = -d / nl, nz = 1 / nl;
+    for (let k = 0; k < OFF.length; k++) {
+      let o = OFF[k] * ROAD_HW;
+      if (k === 0 || k === OFF.length - 1) o += Math.sign(o) * (vnoise(x * 2.1, k) - 0.35) * 0.14; // ragged edges
+      let px = x + nx * o, pz = cz + nz * o;
+      if (Math.abs(px) > HX - 0.03) px = Math.sign(px) * (HX - 0.03);
+      pos.push(px, groundY(px, pz) + 0.03, pz);
+      const c = CLR[k].clone().multiplyScalar(0.95 + vnoise(x * 3.3, k * 1.7) * 0.08);
+      colors.push(c.r, c.g, c.b);
+    }
+    rows++;
+  }
+  const W = OFF.length;
+  for (let r = 0; r < rows - 1; r++) for (let k = 0; k < W - 1; k++) {
+    const a = r * W + k, b = a + 1, c = a + W, d = c + 1;
+    index.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, roadMat);
+  m.receiveShadow = true;
+  island.add(m);
+}
+buildRoadRibbon(-HX, gapA + 0.05);
+buildRoadRibbon(gapB - 0.05, HX);
+
+/* =====================================================================
+   6. Scenery: bridge, trees, bushes, fences, rocks, flowers, tufts
+   ===================================================================== */
+const WOOD = ['#b98b61', '#a97c55', '#c49870', '#b08158'].map(col);
+const woodMats = WOOD.map((c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
+function box(w, h, d, mat, parent) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.castShadow = true; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+// --- Arched wooden bridge where the road meets the stream ---
+{
+  const ax = gapA - 0.35, bx = gapB + 0.35, az = roadZ(ax), bz = roadZ(bx);
+  const L = Math.hypot(bx - ax, bz - az), A = 0.36;
+  const bridge = new THREE.Group();
+  bridge.position.set((ax + bx) / 2, 0.02, (az + bz) / 2);
+  bridge.rotation.y = -Math.atan2(bz - az, bx - ax);
+  const deckY = (u) => A * Math.cos((Math.PI * u) / L);
+  const slope = (u) => -A * (Math.PI / L) * Math.sin((Math.PI * u) / L);
+  const n = Math.round(L / 0.27);
+  for (let i = 0; i <= n; i++) {
+    const u = -L / 2 + (L * i) / n;
+    const plank = box(0.23, 0.07, 1.72 + rr(-0.06, 0.06), woodMats[i % 4], bridge);
+    plank.position.set(u, deckY(u) + 0.035, rr(-0.03, 0.03));
+    plank.rotation.z = Math.atan(slope(u)) + rr(-0.03, 0.03);
+  }
+  for (const side of [-1, 1]) {
+    for (const u of [-L / 2 + 0.15, 0, L / 2 - 0.15]) {
+      const post = box(0.1, 0.6, 0.1, woodMats[1], bridge);
+      post.position.set(u, deckY(u) + 0.3, side * 0.86);
+    }
+    const SEG = 8;
+    for (let i = 0; i < SEG; i++) { // the hand-rail and a stringer, both following the arch
+      const u0 = -L / 2 + 0.15 + ((L - 0.3) * i) / SEG, u1 = -L / 2 + 0.15 + ((L - 0.3) * (i + 1)) / SEG;
+      const len = Math.hypot(u1 - u0, deckY(u1) - deckY(u0));
+      const ang = Math.atan2(deckY(u1) - deckY(u0), u1 - u0);
+      const rail = box(len + 0.02, 0.07, 0.08, woodMats[2], bridge);
+      rail.position.set((u0 + u1) / 2, (deckY(u0) + deckY(u1)) / 2 + 0.56, side * 0.86);
+      rail.rotation.z = ang;
+      const beam = box(len + 0.02, 0.12, 0.12, woodMats[3], bridge);
+      beam.position.set((u0 + u1) / 2, (deckY(u0) + deckY(u1)) / 2 - 0.04, side * 0.7);
+      beam.rotation.z = ang;
+    }
+  }
+  island.add(bridge);
+}
+
+// --- Trees: round, tall poplar, pine and a pink blossom tree ---
+const swaying = []; // canopies that sway almost imperceptibly
+const icoGeo = new THREE.IcosahedronGeometry(1, 1);
+const leafMats = {
+  round: ['#86c46e', '#9ad07a', '#77b864'].map((c) => lambert(c)),
+  tall: ['#8fc977', '#7dbd6b'].map((c) => lambert(c)),
+  pine: ['#5f9f6e', '#6aab78', '#579463'].map((c) => lambert(c)),
+  blossom: ['#f6c0cf', '#f2abc1', '#fbd6e0'].map((c) => lambert(c)),
+};
+const trunkMat = lambert('#9b6b4b');
+function addBlob(parent, mat, x, y, z, sx, sy = sx, sz = sx) {
+  const m = new THREE.Mesh(icoGeo, mat);
+  m.position.set(x, y, z); m.scale.set(sx, sy, sz);
+  m.rotation.set(rr(0, 3), rr(0, 3), 0);
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+}
+function addTree(x, z, type, s) {
+  const tree = new THREE.Group();
+  tree.position.set(x, groundY(x, z) - 0.05, z);
+  tree.scale.setScalar(s);
+  tree.rotation.y = rr(0, TAU);
+  const trunkH = type === 'pine' ? 0.7 : type === 'tall' ? 1.0 : 1.15;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.17, trunkH, 6).translate(0, trunkH / 2, 0), trunkMat);
+  trunk.castShadow = true; trunk.receiveShadow = true;
+  tree.add(trunk);
+  const canopy = new THREE.Group();
+  canopy.position.y = trunkH;
+  tree.add(canopy);
+  const m = leafMats[type];
+  if (type === 'round' || type === 'blossom') {
+    addBlob(canopy, m[0], 0, 0.55, 0, 0.85);
+    addBlob(canopy, m[1], 0.48, 0.35, 0.2, 0.6);
+    addBlob(canopy, m[2], -0.42, 0.42, -0.15, 0.62);
+    addBlob(canopy, m[1], 0.05, 0.98, -0.12, 0.55);
+    addBlob(canopy, m[2], -0.1, 0.3, 0.5, 0.5);
+  } else if (type === 'tall') {
+    addBlob(canopy, m[0], 0, 0.95, 0, 0.55, 1.35, 0.55);
+    addBlob(canopy, m[1], 0.12, 0.45, 0.1, 0.45);
+  } else {
+    const tiers = [[0.85, 1.0, 0.45], [0.66, 0.9, 1.0], [0.44, 0.78, 1.5]];
+    tiers.forEach(([r, h, y], i) => {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), m[i]);
+      cone.position.y = y; cone.rotation.y = rr(0, 1); cone.castShadow = true;
+      canopy.add(cone);
+    });
+  }
+  canopy.userData.phase = rr(0, TAU);
+  swaying.push(canopy);
+  island.add(tree);
+  obstacles.push({ x, z, r: 0.35 * s + 0.15 });
+}
+[
+  [-9.2, -5.4, 'round', 1.15], [-6.9, -6.3, 'pine', 1.0], [-9.4, 5.4, 'blossom', 0.95],
+  [8.9, -5.3, 'round', 1.3], [9.7, -1.6, 'tall', 1.0], [6.9, -6.3, 'pine', 1.2],
+  [2.6, -6.3, 'round', 0.9], [9.3, 5.3, 'round', 1.0], [-1.0, 6.0, 'tall', 0.85],
+  [5.7, -3.4, 'blossom', 1.0], [-7.7, 0.2, 'round', 0.8], [-0.9, -6.6, 'pine', 0.8],
+].forEach(([x, z, t, s]) => addTree(x, z, t, s));
+
+// --- Bushes ---
+const bushMats = ['#7fb867', '#8cc373', '#73ad5e'].map((c) => lambert(c));
+function addBush(x, z, s) {
+  const g = new THREE.Group();
+  g.position.set(x, groundY(x, z) - 0.05, z);
+  g.scale.setScalar(s);
+  addBlob(g, bushMats[0], 0, 0.32, 0, 0.5, 0.42, 0.5);
+  addBlob(g, bushMats[1], 0.42, 0.24, 0.12, 0.36, 0.3, 0.36);
+  addBlob(g, bushMats[2], -0.36, 0.22, -0.1, 0.38, 0.3, 0.38);
+  island.add(g);
+  obstacles.push({ x, z, r: 0.6 * s });
+}
+[[-2.6, -6.7, 1], [0.9, -6.9, 0.8], [10.1, 0.0, 0.9], [-10.2, -2.0, 1], [-6.8, 6.7, 0.9],
+ [7.6, 6.4, 0.85], [4.2, -0.9, 0.75], [-10.3, 3.0, 0.7]].forEach(([x, z, s]) => addBush(x, z, s));
+
+// --- Fences: one keeping the sheep off the road, one along the front edge ---
+function addFence(points) {
+  for (let i = 0; i < points.length; i++) {
+    const [x, z] = points[i];
+    const post = box(0.13, 0.78, 0.13, woodMats[i % 2], island);
+    post.position.set(x, groundY(x, z) + 0.33, z);
+    post.rotation.set(rr(-0.06, 0.06), rr(0, 1), rr(-0.06, 0.06));
+    if (i === 0) continue;
+    const [px, pz] = points[i - 1];
+    const len = Math.hypot(x - px, z - pz), ang = -Math.atan2(z - pz, x - px);
+    const y0 = groundY(px, pz), y1 = groundY(x, z);
+    for (const h of [0.3, 0.58]) {
+      const rail = box(len + 0.12, 0.08, 0.06, woodMats[(i + 2) % 4], island);
+      rail.position.set((x + px) / 2, (y0 + y1) / 2 + h + rr(-0.02, 0.02), (z + pz) / 2);
+      rail.rotation.set(0, ang, Math.atan2(y1 - y0, len) + rr(-0.03, 0.03));
+    }
+    for (let t = 0; t <= 1; t += 0.25) obstacles.push({ x: lerp(px, x, t), z: lerp(pz, z, t), r: 0.18 });
+  }
+}
+addFence([1.0, 2.2, 3.4, 4.6, 5.8].map((x) => [x, roadZ(x) - 1.55]));
+addFence([[1.8, 6.85], [3.0, 6.9], [4.2, 6.85], [5.4, 6.9], [6.5, 6.8]]);
+
+// --- Rocks (including the little spring the stream rises from at the back edge) ---
+const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+const rockMats = ['#b9ada0', '#a99d91', '#c8beb2'].map((c) => lambert(c));
+function addRock(x, z, s, sink = 0.35, isObstacle = true) {
+  const m = new THREE.Mesh(rockGeo, pick(rockMats, rng));
+  m.position.set(x, groundY(x, z) + s * (1 - sink) - s * 0.6, z);
+  m.scale.set(s, s * rr(0.6, 0.85), s * rr(0.8, 1.1));
+  m.rotation.set(rr(0, 3), rr(0, 3), rr(0, 3));
+  m.castShadow = true; m.receiveShadow = true;
+  island.add(m);
+  if (isObstacle) obstacles.push({ x, z, r: s * 0.9 });
+}
+{
+  const sx = streamX(-HZ + 0.3);
+  addRock(sx - 1.15, -HZ + 0.35, 0.62, 0.3, false); addRock(sx - 0.35, -HZ + 0.15, 0.55, 0.25, false);
+  addRock(sx + 0.55, -HZ + 0.3, 0.7, 0.3, false); addRock(sx + 1.35, -HZ + 0.45, 0.5, 0.3, false);
+  addRock(sx + 0.1, -HZ + 0.6, 0.32, 0.3, false);
+  addRock(3.6, 5.3, 0.38); addRock(-8.7, -1.6, 0.3); addRock(10.2, 3.9, 0.32); addRock(-5.6, -2.9, 0.22);
+}
+
+// --- Origin marker: the fixed point the selected sheep's distance is measured from ---
+const MARKER = { x: 0.6, z: -0.9 };
+{
+  const g = new THREE.Group();
+  g.position.set(MARKER.x, groundY(MARKER.x, MARKER.z), MARKER.z);
+  const post = box(0.07, 0.8, 0.07, woodMats[0], g);
+  post.position.y = 0.4;
+  const flagShape = new THREE.Shape(); flagShape.moveTo(0, 0); flagShape.lineTo(0.42, 0.13); flagShape.lineTo(0, 0.26);
+  const flag = new THREE.Mesh(new THREE.ShapeGeometry(flagShape), new THREE.MeshLambertMaterial({ color: '#ff9eb1', side: THREE.DoubleSide }));
+  flag.position.set(0.035, 0.52, 0); flag.castShadow = true;
+  g.add(flag);
+  g.userData.flag = flag;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: '#fff4e4', transparent: true, opacity: 0.85, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05;
+  g.add(ring);
+  island.add(g);
+  swaying.push(flag);
+  flag.userData.phase = 0;
+  flag.userData.flag = true;
+  obstacles.push({ x: MARKER.x, z: MARKER.z, r: 0.3 });
+}
+
+// --- Instanced detail: grass tufts, flowers, pebbles ---
+const dummy = new THREE.Object3D();
+const grassy = (x, z, m) => sdIsland(x, z) < -0.25 && streamDist(x, z) > STREAM_BANK - 0.1 + m && roadDist(x, z) > ROAD_HW + 0.12 + m
+  && obstacles.every((o) => (x - o.x) ** 2 + (z - o.z) ** 2 > (o.r * 0.7) ** 2);
+{
+  // Tufts: three thin blades.
+  const blades = [-0.35, 0.05, 0.4].map((tilt, i) => {
+    const b = new THREE.ConeGeometry(0.045, 0.3 + i * 0.04, 3).translate(0, 0.15 + i * 0.02, 0);
+    b.rotateZ(tilt); b.rotateY(i * 2.1);
+    return b.toNonIndexed();
+  });
+  const tuftGeo = mergeGeometries(blades);
+  const N = 480, tufts = new THREE.InstancedMesh(tuftGeo, new THREE.MeshLambertMaterial({ flatShading: true }), N);
+  const c = new THREE.Color(), tones = ['#8cc06c', '#9acb77', '#80b664', '#a6d27f'].map(col);
+  let n = 0;
+  for (let tries = 0; n < N && tries < 6000; tries++) {
+    const x = rr(-HX, HX), z = rr(-HZ, HZ);
+    if (!grassy(x, z, 0)) continue;
+    dummy.position.set(x, groundY(x, z) - 0.02, z);
+    dummy.rotation.set(0, rr(0, TAU), 0);
+    dummy.scale.setScalar(rr(0.7, 1.4));
+    dummy.updateMatrix();
+    tufts.setMatrixAt(n, dummy.matrix);
+    tufts.setColorAt(n, c.copy(pick(tones, rng)));
+    n++;
+  }
+  tufts.count = n;
+  tufts.receiveShadow = true;
+  island.add(tufts);
+
+  // Flowers grow in little clusters: green stems + coloured heads.
+  const stems = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 4).translate(0, 0.08, 0), lambert('#6fa65a'), 400);
+  const heads = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.065, 0), new THREE.MeshLambertMaterial({ flatShading: true }), 400);
+  const petals = ['#f7a8b8', '#ffd77a', '#ffffff', '#c9b6f2', '#ffb38a', '#a8d8ff'].map(col);
+  let f = 0;
+  for (let k = 0; k < 40 && f < 400; k++) {
+    const cx = rr(-HX, HX), cz = rr(-HZ, HZ);
+    if (!grassy(cx, cz, 0.3)) continue;
+    const pc = pick(petals, rng);
+    const count = Math.floor(rr(5, 12));
+    for (let i = 0; i < count && f < 400; i++) {
+      const x = cx + rr(-0.7, 0.7), z = cz + rr(-0.7, 0.7);
+      if (!grassy(x, z, 0.2)) continue;
+      const y = groundY(x, z), s = rr(0.8, 1.25);
+      dummy.position.set(x, y, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(s); dummy.updateMatrix();
+      stems.setMatrixAt(f, dummy.matrix);
+      dummy.position.y = y + 0.16 * s; dummy.scale.set(s, s * 0.6, s); dummy.rotation.y = rr(0, 3); dummy.updateMatrix();
+      heads.setMatrixAt(f, dummy.matrix);
+      heads.setColorAt(f, c.copy(pc).multiplyScalar(rr(0.93, 1.05)));
+      f++;
+    }
+  }
+  stems.count = heads.count = f;
+  island.add(stems, heads);
+
+  // Pebbles: along both road verges, along the stream banks, and studded into the earth sides.
+  const peb = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ flatShading: true }), 420);
+  const pebTones = ['#d8c3a5', '#c9b49a', '#bfb3a6', '#e3d6c2'].map(col);
+  let p = 0;
+  const put = (x, y, z, s, tone) => {
+    if (p >= 420) return;
+    dummy.position.set(x, y, z); dummy.rotation.set(rr(0, 3), rr(0, 3), rr(0, 3));
+    dummy.scale.set(s, s * rr(0.5, 0.8), s * rr(0.8, 1.2)); dummy.updateMatrix();
+    peb.setMatrixAt(p, dummy.matrix); peb.setColorAt(p, c.copy(tone)); p++;
+  };
+  for (let x = -HX + 0.3; x < HX - 0.3; x += rr(0.25, 0.55)) {
+    if (x > gapA - 0.3 && x < gapB + 0.3) continue;
+    for (const side of [-1, 1]) {
+      if (rng() < 0.35) continue;
+      const z = roadZ(x) + side * (ROAD_HW + rr(-0.05, 0.12)) / Math.cos(Math.atan(roadDZ(x)));
+      put(x, groundY(x, z) + 0.02, z, rr(0.05, 0.11), pick(pebTones, rng));
+    }
+  }
+  const bankTones = ['#b8c2c4', '#a9b3b0', '#cfd3cc'].map(col);
+  for (let z = -HZ + 1; z < HZ - 0.2; z += rr(0.2, 0.45)) {
+    for (const side of [-1, 1]) {
+      if (rng() < 0.3) continue;
+      const d = rr(1.05, 1.45), x = streamX(z) + side * d * Math.hypot(1, streamDX(z));
+      if (Math.abs(z - roadZ(x)) < ROAD_HW + 0.3) continue;
+      put(x, groundY(x, z) + 0.01, z, rr(0.05, 0.12), pick(bankTones, rng));
+    }
+  }
+  for (let i = 0; i < 46; i++) { // stones poking out of the earth walls
+    const a = rr(0, TAU);
+    let x = Math.cos(a) * HX * 1.4, z = Math.sin(a) * HZ * 1.4;
+    for (let k = 0; k < 30; k++) { const d = sdIsland(x, z); const len = Math.hypot(x, z); x -= (x / len) * d * 0.7; z -= (z / len) * d * 0.7; }
+    put(x, rr(-2.1, -0.75), z, rr(0.1, 0.2), pick(pebTones, rng));
+  }
+  peb.count = p;
+  peb.castShadow = false; peb.receiveShadow = true;
+  island.add(peb);
+}
+
+// --- Clouds: soft puff clusters; the high ones drift over and cast soft shadows ---
+const clouds = [];
+const cloudPuff = new THREE.IcosahedronGeometry(1, 1);
+function makeCloud(x, y, z, s, speed, shadow) {
+  const parts = [];
+  const count = 5 + Math.floor(rr(0, 3));
+  for (let i = 0; i < count; i++) {
+    const g = cloudPuff.clone();
+    const r = rr(0.7, 1.25) * (1 - Math.abs(i - count / 2) / count * 0.6);
+    g.scale(r * 1.15, r * 0.85, r);
+    g.translate((i - count / 2) * 0.95 + rr(-0.2, 0.2), rr(0, 0.35) * r, rr(-0.45, 0.45));
+    parts.push(g);
+  }
+  const mat = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#fff4e6', emissiveIntensity: 0.45, flatShading: true, transparent: true, opacity: 0.94 });
+  const m = new THREE.Mesh(mergeGeometries(parts), mat);
+  m.position.set(x, y, z); m.scale.setScalar(s);
+  scene.add(m);
+  clouds.push({ mesh: m, speed, shadow, radius: s * 2.6, fade: 1 });
+}
+makeCloud(-14, 9.5, -5, 0.95, 0.32, true);
+makeCloud(4, 10.5, 1, 0.75, 0.26, true);
+makeCloud(18, 9.0, -9, 1.05, 0.3, true);
+makeCloud(-4, 11.0, 6, 0.7, 0.38, true);
+makeCloud(26, 10.0, 3, 0.9, 0.28, true);
+makeCloud(-26, -1.5, -18, 1.5, 0.18, false);
+makeCloud(14, -6.5, -16, 1.4, 0.2, false);
+makeCloud(-21, -7.0, 4, 1.3, 0.16, false);
+makeCloud(24, 0.5, -24, 1.5, 0.22, false);
+
+// --- A few distant islets for depth ---
+const islets = [];
+function makeIslet(x, y, z, r) {
+  const g = new THREE.Group();
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.94, 0.3, 9), lambert('#9fcd7c'));
+  const under = new THREE.Mesh(new THREE.ConeGeometry(r * 0.95, r * 1.7, 9), lambert('#ad8159'));
+  under.rotation.x = Math.PI; under.position.y = -0.15 - r * 0.85;
+  const tree = new THREE.Mesh(icoGeo, leafMats.round[1]);
+  tree.scale.setScalar(r * 0.32); tree.position.set(r * 0.2, 0.15 + r * 0.32, 0);
+  g.add(top, under, tree);
+  g.position.set(x, y, z);
+  scene.add(g);
+  islets.push({ g, y, ph: rr(0, TAU) });
+}
+makeIslet(-24, -4, -16, 1.6);
+makeIslet(25, -7, -12, 1.2);
+makeIslet(20, -2, 20, 0.9);
+
+// --- Butterflies, purely for charm ---
+const butterflies = [];
+{
+  const wingShape = new THREE.Shape();
+  wingShape.moveTo(0, 0); wingShape.bezierCurveTo(0.05, 0.16, 0.22, 0.17, 0.2, 0.04); wingShape.bezierCurveTo(0.22, -0.08, 0.06, -0.12, 0, 0);
+  const wingGeo = new THREE.ShapeGeometry(wingShape).rotateX(-Math.PI / 2);
+  ['#ffe28a', '#f9b6c9', '#cbb8f4'].forEach((c, i) => {
+    const mat = new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide });
+    const g = new THREE.Group();
+    const l = new THREE.Mesh(wingGeo, mat), r = new THREE.Mesh(wingGeo, mat);
+    r.scale.x = -1;
+    g.add(l, r);
+    scene.add(g);
+    butterflies.push({ g, l, r, cx: [4, -8, 2][i], cz: [-1, 4, 4.8][i], ph: rr(0, TAU) });
+  });
+}
+
+/* =====================================================================
+   7. Sheep
+   ===================================================================== */
+// Shared geometry: a lumpy wool body made of puffs merged into one mesh.
+function buildWoolGeometry() {
+  const parts = [];
+  const core = new THREE.IcosahedronGeometry(1, 1);
+  core.scale(0.4, 0.36, 0.54);
+  parts.push(core);
+  const N = 18;
+  for (let i = 0; i < N; i++) {
+    const y = 1 - ((i + 0.5) / N) * 1.6;               // golden-spiral directions, skipping the belly
+    const r = Math.sqrt(1 - y * y), th = i * 2.39996;
+    const puff = new THREE.IcosahedronGeometry(0.19 + hash2(i, 3) * 0.07, 1);
+    puff.translate(Math.cos(th) * r * 0.37, y * 0.31 + 0.02, Math.sin(th) * r * 0.5);
+    parts.push(puff);
+  }
+  return mergeGeometries(parts);
+}
+const WOOL_GEO = buildWoolGeometry();
+const LEG_GEO = new THREE.CylinderGeometry(0.055, 0.045, 0.34, 6).translate(0, -0.17, 0);
+const EYE_GEO = new THREE.SphereGeometry(1, 10, 8);
+const PUFF_GEO = new THREE.IcosahedronGeometry(1, 1);
+const HIT_GEO = new THREE.BoxGeometry(0.95, 0.95, 1.45);
+const FACE_MAT = lambert('#4b403f');
+const EYE_MAT = new THREE.MeshBasicMaterial({ color: '#fffaf3' });
+const PUPIL_MAT = new THREE.MeshBasicMaterial({ color: '#231c1c' });
+const EAR_IN_MAT = lambert('#f1b3b9');
+const HIT_MAT = new THREE.MeshBasicMaterial({ visible: false });
+const HULL_HOVER = new THREE.MeshBasicMaterial({ color: '#ffe7a0', side: THREE.BackSide });
+const HULL_SELECT = new THREE.MeshBasicMaterial({ color: '#ff9fb4', side: THREE.BackSide });
+const WOOL_TINTS = ['#f8f4ec', '#f5eee2', '#fbf8f3', '#f2ebe2', '#f7f1ea'];
+const woolMats = new Map();
+const woolMat = (tint) => { if (!woolMats.has(tint)) woolMats.set(tint, lambert(tint)); return woolMats.get(tint); };
+
+// Soft round contact shadow, drawn under every sheep (on top of the real shadow map).
+const blobTex = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const ctx = cv.getContext('2d');
+  const gr = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(70,52,36,0.5)'); gr.addColorStop(0.55, 'rgba(70,52,36,0.25)'); gr.addColorStop(1, 'rgba(70,52,36,0)');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const BLOB_GEO = new THREE.PlaneGeometry(1.3, 1.6).rotateX(-Math.PI / 2);
+
+const NAMES = ['Clover', 'Pip', 'Mabel', 'Biscuit', 'Dottie', 'Wren', 'Juniper', 'Pudding', 'Moss', 'Fern', 'Bramble',
+  'Tansy', 'Marigold', 'Basil', 'Poppy', 'Hazel', 'Nutmeg', 'Truffle', 'Sorrel', 'Bean', 'Oats', 'Barley', 'Rosie',
+  'Willow', 'Dumpling', 'Pebble', 'Tuppence', 'Bun', 'Maple', 'Sprout', 'Crumpet', 'Daisy'];
+let nameCursor = Math.floor(Math.random() * NAMES.length);
+const usedNames = new Set();
+function nextName() {
+  for (let i = 0; i < NAMES.length; i++) {
+    const n = NAMES[(nameCursor + i * 7) % NAMES.length];
+    if (!usedNames.has(n)) { nameCursor += 7; usedNames.add(n); return n; }
+  }
+  return 'Lamb ' + (usedNames.size + 1);
+}
+
+const BODY_Y = 0.54;       // height of the body centre above the ground (unit sheep)
+const sheepList = [];
+const MAX_SHEEP = 30;
+
+class Sheep {
+  constructor({ x, z, scale = rnd(0.88, 1.12), tint = pick(WOOL_TINTS), heading = rnd(0, TAU), name = nextName() }) {
+    Object.assign(this, { x, z, scale, tint, heading, name });
+    this.region = regionOf(x, z);
+    this.state = 'idle';
+    this.timer = rnd(0.5, 3);
+    this.target = null;
+    this.speed = 0; this.walkSpeed = 0;
+    this.maxSpeed = rnd(0.7, 0.95);
+    this.phase = rnd(0, TAU);
+    this.walkPhase = 0;
+    this.pose = { pitch: 0, yaw: 0, nibble: 0, legAmp: 0, graze: 0 };
+    this.look = { yaw: 0, pitch: 0, timer: 0 };
+    this.ears = [0, 0]; this.wag = 0;
+    this.blink = rnd(1, 4); this.blinkT = 0;
+    this.jumpT = -1;
+    this.fx = null;           // 'drop' | 'in' | 'out' one-shot animations
+    this.stuck = 0;
+    this.build();
+  }
+
+  build() {
+    const S = this.scale;
+    this.root = new THREE.Group();
+    this.squash = new THREE.Group();   // pivot at the feet: squash & stretch
+    this.lift = new THREE.Group();     // vertical hop / bob / drop
+    this.body = new THREE.Group();
+    this.body.position.y = BODY_Y;
+    this.root.scale.setScalar(S);
+    this.root.add(this.squash); this.squash.add(this.lift); this.lift.add(this.body);
+
+    const wool = new THREE.Mesh(WOOL_GEO, woolMat(this.tint));
+    wool.castShadow = true; wool.receiveShadow = true;
+    this.body.add(wool);
+    this.wool = wool;
+    this.hull = new THREE.Mesh(WOOL_GEO, HULL_HOVER);  // inverted-hull outline for hover/selection
+    this.hull.scale.setScalar(1.075);
+    this.hull.visible = false;
+    this.body.add(this.hull);
+
+    // Head on a pivot so it can dip to graze, turn to look, nibble.
+    this.headPivot = new THREE.Group();
+    this.headPivot.position.set(0, 0.1, 0.46);
+    this.body.add(this.headPivot);
+    const head = new THREE.Mesh(PUFF_GEO, FACE_MAT);
+    head.scale.set(0.19, 0.22, 0.27); head.position.set(0, 0.02, 0.17); head.rotation.x = 0.5;
+    head.castShadow = true;
+    this.headPivot.add(head);
+    this.head = head;
+    for (const [x, y, z, r] of [[-0.07, 0.19, 0.04, 0.1], [0.07, 0.19, 0.04, 0.1], [0, 0.22, -0.04, 0.11]]) {
+      const tuft = new THREE.Mesh(PUFF_GEO, woolMat(this.tint));
+      tuft.scale.setScalar(r); tuft.position.set(x, y, z); tuft.castShadow = true;
+      this.headPivot.add(tuft);
+    }
+    this.eyes = new THREE.Group();
+    this.eyes.position.set(0, 0.09, 0.27);
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Mesh(EYE_GEO, EYE_MAT); eye.scale.setScalar(0.052); eye.position.set(sx * 0.1, 0, 0);
+      const pupil = new THREE.Mesh(EYE_GEO, PUPIL_MAT); pupil.scale.setScalar(0.03); pupil.position.set(sx * 0.105, 0, 0.034);
+      this.eyes.add(eye, pupil);
+    }
+    this.headPivot.add(this.eyes);
+    this.earPivots = [-1, 1].map((sx) => {
+      const p = new THREE.Group();
+      p.position.set(sx * 0.15, 0.13, 0.08);
+      p.userData.rest = sx * -0.45;
+      const ear = new THREE.Mesh(PUFF_GEO, FACE_MAT); ear.scale.set(0.13, 0.04, 0.07); ear.position.x = sx * 0.1;
+      const inner = new THREE.Mesh(PUFF_GEO, EAR_IN_MAT); inner.scale.set(0.085, 0.02, 0.045); inner.position.set(sx * 0.1, 0.022, 0);
+      p.add(ear, inner);
+      this.headPivot.add(p);
+      return p;
+    });
+    // Stubby tail.
+    this.tail = new THREE.Group();
+    this.tail.position.set(0, 0.1, -0.56);
+    const tailPuff = new THREE.Mesh(PUFF_GEO, woolMat(this.tint));
+    tailPuff.scale.setScalar(0.12); tailPuff.position.z = -0.04;
+    this.tail.add(tailPuff);
+    this.body.add(this.tail);
+    // Legs, pivoting at the hip.
+    this.legs = [[-0.2, 0.28], [0.2, 0.28], [-0.2, -0.28], [0.2, -0.28]].map(([lx, lz]) => {
+      const leg = new THREE.Mesh(LEG_GEO, FACE_MAT);
+      leg.position.set(lx, -0.2, lz);
+      leg.castShadow = true;
+      this.body.add(leg);
+      return leg;
+    });
+    // Invisible, generous click target.
+    this.hit = new THREE.Mesh(HIT_GEO, HIT_MAT);
+    this.hit.position.set(0, 0.05, 0.08);
+    this.hit.userData.sheep = this;
+    this.body.add(this.hit);
+    // Contact shadow stays on the ground (not inside the lift group).
+    this.blob = new THREE.Mesh(BLOB_GEO, new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
+    this.blob.position.y = 0.03;
+    this.blob.renderOrder = 1;
+    this.root.add(this.blob);
+    scene.add(this.root);
+    this.place();
+  }
+
+  place() {
+    this.root.position.set(this.x, groundY(this.x, this.z), this.z);
+    this.root.rotation.y = this.heading;
+  }
+
+  // ---- Behaviour ----------------------------------------------------
+  setState(state, duration) {
+    this.state = state;
+    this.timer = duration;
+    if (state !== 'walk') this.target = null;
+    if (state !== 'jump') this.jumpT = -1;
+  }
+
+  walkTo(x, z, speedMul = 1) {
+    this.state = 'walk';
+    this.target = { x, z };
+    this.walkSpeed = this.maxSpeed * speedMul;
+    this.timer = 40;
+    this.stuck = 0;
+  }
+
+  jump() {
+    if (this.fx) return;
+    this.setState('jump', 0.8);
+    this.jumpT = 0;
+    sound.boing(this.scale);
+  }
+
+  // Pick a random reachable spot on this sheep's own patch of grass.
+  findTarget(minR, maxR) {
+    for (let i = 0; i < 50; i++) {
+      const a = Math.random() * TAU, r = rnd(minR, maxR);
+      const x = this.x + Math.sin(a) * r, z = this.z + Math.cos(a) * r;
+      if (!walkable(x, z) || !pathClear(this.x, this.z, x, z)) continue;
+      if (sheepList.some((o) => o !== this && (Math.hypot(o.x - x, o.z - z) < 1.3 || (o.target && Math.hypot(o.target.x - x, o.target.z - z) < 1.3)))) continue;
+      return { x, z };
+    }
+    return null;
+  }
+
+  // Autonomous choice when the current activity runs out.
+  think() {
+    const r = Math.random();
+    if (r < 0.42) {
+      const t = this.findTarget(1.2, 4.2);
+      if (t) return this.walkTo(t.x, t.z);
+    }
+    if (r < 0.8) return this.setState('graze', rnd(4, 9));
+    if (r < 0.96) return this.setState('idle', rnd(2, 5));
+    this.jump();
+  }
+
+  // ---- Per-frame update ---------------------------------------------
+  update(dt, t) {
+    if (this.fx) this.updateFx(dt);
+    if (this.fx && this.fx.type !== 'in') { this.applyPose(dt, t); return; }
+
+    this.timer -= dt;
+    if (this.state === 'walk') this.updateWalk(dt);
+    else {
+      this.speed = damp(this.speed, 0, 6, dt);
+      if (this.state === 'jump') {
+        this.jumpT += dt;
+        if (this.jumpT >= 0.8) this.setState('idle', rnd(1.2, 2.5));
+      } else if (this.timer <= 0) this.think();
+    }
+    this.separate(dt);
+    this.applyPose(dt, t);
+  }
+
+  updateWalk(dt) {
+    const tg = this.target;
+    const dx = tg.x - this.x, dz = tg.z - this.z, dist = Math.hypot(dx, dz);
+    if (dist < 0.05 || this.timer <= 0 || this.stuck > 2.5) {
+      if (Math.random() < 0.6) this.setState('graze', rnd(3, 7)); else this.setState('idle', rnd(1.5, 4));
+      return;
+    }
+    // Turn toward the target, only really moving once roughly facing it.
+    const dh = angleDiff(this.heading, Math.atan2(dx, dz));
+    this.heading += clamp(dh, -3 * dt, 3 * dt);
+    const facing = Math.max(0, Math.cos(dh));
+    const want = this.walkSpeed * clamp(dist / 0.9, 0.25, 1) * facing * facing;
+    this.speed = damp(this.speed, want, 4, dt);
+    // Move along the straight, pre-validated segment so the sheep never strays off it.
+    const step = Math.min(dist, this.speed * dt);
+    const nx = this.x + (dx / dist) * step, nz = this.z + (dz / dist) * step;
+    if (walkable(nx, nz, SHEEP_MARGIN * 0.6)) { this.x = nx; this.z = nz; this.stuck = Math.max(0, this.stuck - dt); }
+    else this.stuck += dt;
+    if (step < 0.002 * dt * 60 && facing > 0.9) this.stuck += dt;
+  }
+
+  // Gentle push away from neighbours, never onto forbidden ground or across a boundary.
+  separate(dt) {
+    for (const o of sheepList) {
+      if (o === this || o.fx?.type === 'out' || o.fx?.type === 'drop') continue;
+      const dx = this.x - o.x, dz = this.z - o.z, d = Math.hypot(dx, dz);
+      const minD = 0.55 * (this.scale + o.scale);
+      if (d < minD && d > 1e-4) {
+        const push = (minD - d) * 0.5 * Math.min(1, dt * 6);
+        const nx = this.x + (dx / d) * push, nz = this.z + (dz / d) * push;
+        if (walkable(nx, nz, SHEEP_MARGIN * 0.6) && regionOf(nx, nz) === this.region) { this.x = nx; this.z = nz; }
+      }
+    }
+  }
+
+  updateFx(dt) {
+    const fx = this.fx;
+    fx.t += dt;
+    if (fx.t >= fx.dur) {
+      this.fx = null;
+      fx.done?.();
+    }
+  }
+
+  applyPose(dt, t) {
+    const p = this.pose, S = this.scale;
+    // State targets.
+    let tPitch = 0, tYaw = 0, tNibble = 0, tGraze = 0;
+    if (this.state === 'graze') { tGraze = 1; tPitch = 1.1; tYaw = Math.sin(t * 0.5 + this.phase) * 0.22; tNibble = 1; }
+    else if (this.state === 'walk') tPitch = 0.12;
+    else if (this.state === 'jump') tPitch = -0.25;
+    else {
+      this.look.timer -= dt;
+      if (this.look.timer < 0) { this.look.timer = rnd(1.2, 3.5); this.look.yaw = rnd(-0.55, 0.55); this.look.pitch = rnd(-0.2, 0.15); }
+      tPitch = this.look.pitch; tYaw = this.look.yaw;
+    }
+    p.pitch = damp(p.pitch, tPitch, 5, dt);
+    p.yaw = damp(p.yaw, tYaw, 4, dt);
+    p.nibble = damp(p.nibble, tNibble, 4, dt);
+    p.graze = damp(p.graze, tGraze, 4, dt);
+    const walkAmt = clamp(this.speed / 0.5, 0, 1);
+    p.legAmp = damp(p.legAmp, this.state === 'walk' ? 0.55 * walkAmt : 0, 8, dt);
+    this.walkPhase += dt * this.speed * 9.5 / S;
+
+    // Head: dips forward and down to the grass when grazing, nibbling as it goes.
+    this.headPivot.position.set(0, lerp(0.1, -0.04, p.graze), lerp(0.46, 0.52, p.graze));
+    this.headPivot.rotation.x = p.pitch + p.nibble * Math.sin(t * 15 + this.phase) * 0.07;
+    this.headPivot.rotation.y = p.yaw;
+    this.body.rotation.x = p.graze * 0.12;
+
+    // Legs swing in diagonal pairs.
+    const sw = Math.sin(this.walkPhase) * p.legAmp;
+    this.legs[0].rotation.x = sw; this.legs[3].rotation.x = sw;
+    this.legs[1].rotation.x = -sw; this.legs[2].rotation.x = -sw;
+    const legNorm = p.legAmp / 0.55;
+    let bob = Math.abs(Math.cos(this.walkPhase)) * 0.045 * legNorm - p.graze * 0.04;
+    this.body.rotation.z = Math.sin(this.walkPhase) * 0.035 * legNorm;
+    const breath = Math.sin(t * 2.1 + this.phase) * 0.014 * (1 - walkAmt);
+
+    // Jump: anticipation squash -> stretched take-off -> airborne -> landing squash.
+    let sy = 1, hop = 0;
+    if (this.jumpT >= 0) {
+      const u = this.jumpT / 0.8;
+      if (u < 0.18) sy = 1 - 0.22 * smoothstep(0, 1, u / 0.18);
+      else if (u < 0.82) {
+        const a = (u - 0.18) / 0.64;
+        hop = 4 * a * (1 - a) * 0.8;
+        sy = 1 + 0.16 * Math.abs(1 - 2 * a);
+        const tuck = Math.sin(a * Math.PI) * 0.55;
+        this.legs[0].rotation.x = this.legs[1].rotation.x = -tuck;
+        this.legs[2].rotation.x = this.legs[3].rotation.x = tuck;
+      } else sy = 1 - 0.2 * Math.sin(((u - 0.82) / 0.18) * Math.PI);
+    }
+
+    // One-shot effects: drop from the sky, pop in, poof out.
+    let fxScale = 1, drop = 0;
+    if (this.fx) {
+      const u = clamp(this.fx.t / this.fx.dur, 0, 1);
+      if (this.fx.type === 'drop') {
+        const fall = 0.62;
+        if (u < fall) { const k = u / fall; drop = 5 * (1 - k * k); sy = 1.12; }
+        else {
+          const k = (u - fall) / (1 - fall); sy = 1 - 0.28 * Math.sin(k * Math.PI) * (1 - k * 0.5);
+          if (!this.fx.landed) { this.fx.landed = true; puff(this.x, groundY(this.x, this.z) + 0.1, this.z, 6, 0.6); sound.pop(1.1 / S); }
+        }
+      } else if (this.fx.type === 'in') fxScale = easeOutBack(u);
+      else if (this.fx.type === 'out') { sy = 1 + 0.25 * Math.sin(Math.min(u * 2, 1) * Math.PI / 2); fxScale = 1 - smoothstep(0.3, 1, u); }
+    }
+
+    const sxz = 1 / Math.sqrt(sy); // roughly preserve volume
+    this.squash.scale.set(sxz * fxScale, sy * (1 + breath) * fxScale, sxz * fxScale);
+    this.lift.position.y = hop + drop + bob;
+
+    // Ears twitch, tail wags, eyes blink: little signs of life.
+    if (Math.random() < dt * 0.35) this.ears[Math.random() < 0.5 ? 0 : 1] = 1;
+    if (Math.random() < dt * 0.22) this.wag = 1;
+    this.earPivots.forEach((e, i) => {
+      this.ears[i] *= Math.exp(-dt * 6);
+      e.rotation.z = e.userData.rest + (i ? -1 : 1) * this.ears[i] * 0.45 * Math.sin(t * 35);
+    });
+    this.wag *= Math.exp(-dt * 3);
+    this.tail.rotation.y = Math.sin(t * 22) * 0.6 * this.wag + Math.sin(this.walkPhase * 2) * 0.2 * legNorm;
+    this.blink -= dt;
+    if (this.blink < 0) { this.blinkT = 0.13; this.blink = rnd(2, 5.5); }
+    this.blinkT -= dt;
+    this.eyes.scale.y = this.blinkT > 0 ? 0.15 : 1;
+
+    // Contact shadow shrinks and fades as the sheep leaves the ground.
+    const air = hop + drop;
+    const k = 1 / (1 + air * 0.9);
+    this.blob.scale.set(k * fxScale, 1, k * fxScale);
+    this.blob.material.opacity = k * fxScale;
+    this.root.position.set(this.x, groundY(this.x, this.z), this.z);
+    this.root.rotation.y = this.heading;
+  }
+
+  // Live measurement: top of the sheep above the grass right now.
+  measureHeight() {
+    tmpBox.setFromObject(this.wool).expandByObject(this.head);
+    return tmpBox.max.y - groundY(this.x, this.z);
+  }
+
+  dispose() {
+    scene.remove(this.root);
+    this.blob.material.dispose();
+    usedNames.delete(this.name);
+  }
+}
+const tmpBox = new THREE.Box3();
+
+function spawnSheep(opts, fx) {
+  const s = new Sheep(opts);
+  if (fx) { s.fx = { type: fx, t: 0, dur: fx === 'drop' ? 1.0 : 0.45 }; s.applyPose(0, 0); }
+  sheepList.push(s);
+  updateCount();
+  return s;
+}
+
+function removeSheep(s) {
+  if (s.fx?.type === 'out') return;
+  if (selected === s) select(null);
+  if (hovered === s) hovered = null;
+  puff(s.x, groundY(s.x, s.z) + 0.5 * s.scale, s.z, 10, 0.9);
+  sound.pop(0.8);
+  s.target = null; s.state = 'idle';
+  s.fx = { type: 'out', t: 0, dur: 0.4, done: () => {
+    s.dispose();
+    sheepList.splice(sheepList.indexOf(s), 1);
+    updateCount();
+  } };
+}
+
+// Teleport: poof out, reappear somewhere else, pop in.
+function teleportSheep(s, x, z) {
+  puff(s.x, groundY(s.x, s.z) + 0.5 * s.scale, s.z, 8, 0.8);
+  sound.pop(1.0);
+  s.setState('idle', 4);
+  s.fx = { type: 'out', t: 0, dur: 0.3, done: () => {
+    s.x = x; s.z = z; s.region = regionOf(x, z);
+    s.fx = { type: 'in', t: 0, dur: 0.45 };
+    puff(x, groundY(x, z) + 0.4, z, 8, 0.8);
+    sound.pop(1.3);
+  } };
+}
+
+// Random free grass, anywhere on the island.
+function findFreeSpot(nearX, nearZ, radius) {
+  for (let i = 0; i < 300; i++) {
+    const x = nearX !== undefined ? nearX + rnd(-radius, radius) : rnd(-HX, HX);
+    const z = nearZ !== undefined ? nearZ + rnd(-radius, radius) : rnd(-HZ, HZ);
+    if (walkable(x, z) && sheepList.every((o) => Math.hypot(o.x - x, o.z - z) > 1.6)) return { x, z };
+  }
+  return null;
+}
+
+/* ---------- Poof particles ---------- */
+const particles = [];
+const PUFF_PART_GEO = new THREE.IcosahedronGeometry(0.12, 0);
+function puff(x, y, z, n = 8, spread = 0.8) {
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(PUFF_PART_GEO, new THREE.MeshLambertMaterial({ color: '#fffaf2', emissive: '#fff4e6', emissiveIntensity: 0.3, transparent: true, flatShading: true }));
+    const a = rnd(0, TAU);
+    m.position.set(x, y, z);
+    scene.add(m);
+    particles.push({ m, vx: Math.cos(a) * rnd(0.6, 1.6) * spread, vy: rnd(0.5, 1.8) * spread, vz: Math.sin(a) * rnd(0.6, 1.6) * spread, t: 0, life: rnd(0.45, 0.7), s: rnd(0.7, 1.3) });
+  }
+}
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.t += dt;
+    const u = p.t / p.life;
+    if (u >= 1) { scene.remove(p.m); p.m.material.dispose(); particles.splice(i, 1); continue; }
+    p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.m.position.z += p.vz * dt;
+    p.vx *= 0.92; p.vz *= 0.92; p.vy *= 0.92;
+    p.m.scale.setScalar(p.s * (0.6 + u * 1.4));
+    p.m.material.opacity = 1 - u * u;
+  }
+}
+
+/* =====================================================================
+   8. Sound: tiny WebAudio synths, no files
+   ===================================================================== */
+const sound = (() => {
+  let ctx = null, master = null;
+  let muted = false;
+  try { muted = localStorage.getItem('woolmeadow:muted') === '1'; } catch {}
+  const ensure = () => {
+    if (!ctx) {
+      try {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+      } catch { ctx = null; }
+    }
+    if (ctx?.state === 'suspended') ctx.resume();
+  };
+  const ready = () => ctx && !muted && ctx.state === 'running';
+  const env = (g, t0, peak, attack, dur) => {
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  };
+  return {
+    ensure,
+    get muted() { return muted; },
+    setMuted(v) { muted = v; try { localStorage.setItem('woolmeadow:muted', v ? '1' : '0'); } catch {} },
+    // Soft bubble pop: a fast falling sine.
+    pop(pitch = 1) {
+      if (!ready()) return;
+      const t0 = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(620 * pitch, t0); o.frequency.exponentialRampToValueAtTime(190 * pitch, t0 + 0.13);
+      env(g, t0, 0.35, 0.008, 0.16);
+      o.connect(g).connect(master); o.start(t0); o.stop(t0 + 0.2);
+    },
+    // Springy boing for jumps: a rising sine with a little wobble.
+    boing(size = 1) {
+      if (!ready()) return;
+      const t0 = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(260 / size, t0); o.frequency.exponentialRampToValueAtTime(620 / size, t0 + 0.18);
+      o.frequency.exponentialRampToValueAtTime(420 / size, t0 + 0.32);
+      env(g, t0, 0.18, 0.01, 0.34);
+      o.connect(g).connect(master); o.start(t0); o.stop(t0 + 0.4);
+    },
+    // A small "baa": buzzy saw through two formant filters, with vibrato and a bleaty flutter.
+    baa(size = 1) {
+      if (!ready()) return;
+      const t0 = ctx.currentTime, dur = 0.55, f0 = 250 / size;
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * 1.06, t0); o.frequency.linearRampToValueAtTime(f0, t0 + 0.1); o.frequency.linearRampToValueAtTime(f0 * 0.9, t0 + dur);
+      const vib = ctx.createOscillator(), vibG = ctx.createGain(); vib.frequency.value = 6.5; vibG.gain.value = f0 * 0.035;
+      vib.connect(vibG).connect(o.frequency);
+      const flutter = ctx.createOscillator(), flutterG = ctx.createGain(), vca = ctx.createGain();
+      flutter.frequency.value = 13; flutterG.gain.value = 0.32; vca.gain.value = 0.68;
+      flutter.connect(flutterG).connect(vca.gain);
+      const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 850; f1.Q.value = 3;
+      const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 2200; f2.Q.value = 5;
+      const f2g = ctx.createGain(); f2g.gain.value = 0.5;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.04);
+      g.gain.setValueAtTime(0.5, t0 + dur * 0.55); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(vca); vca.connect(f1); vca.connect(f2); f1.connect(g); f2.connect(f2g).connect(g); g.connect(master);
+      for (const n of [o, vib, flutter]) { n.start(t0); n.stop(t0 + dur + 0.05); }
+    },
+    bonk() {
+      if (!ready()) return;
+      const t0 = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(180, t0); o.frequency.exponentialRampToValueAtTime(120, t0 + 0.12);
+      env(g, t0, 0.25, 0.005, 0.15);
+      o.connect(g).connect(master); o.start(t0); o.stop(t0 + 0.2);
+    },
+  };
+})();
+
+/* =====================================================================
+   9. Camera framing and orbit controls
+   ===================================================================== */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minPolarAngle = 0.22;
+controls.maxPolarAngle = 1.2;
+controls.screenSpacePanning = false;
+controls.rotateSpeed = 0.6;
+controls.zoomSpeed = 0.8;
+controls.target.set(0, -1.3, 0);
+
+let userMovedCamera = false;
+controls.addEventListener('start', () => { userMovedCamera = true; });
+
+// Distance at which the whole island fits the viewport (portrait screens crop the ends a little).
+function fitDistance() {
+  const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
+  const hTan = Math.tan(vHalf) * camera.aspect;
+  const needW = camera.aspect < 0.8 ? 15 : 26.5;
+  return clamp(Math.max(needW / 2 / hTan, 10.5 / Math.tan(vHalf)), 22, 62);
+}
+function frameCamera() {
+  const d = fitDistance(), polar = 1.04, az = 0.32;
+  camera.position.set(
+    controls.target.x + d * Math.sin(polar) * Math.sin(az),
+    controls.target.y + d * Math.cos(polar),
+    controls.target.z + d * Math.sin(polar) * Math.cos(az));
+  controls.minDistance = 9;
+  controls.maxDistance = Math.max(d * 1.35, 45);
+  controls.update();
+}
+frameCamera();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  if (!userMovedCamera) frameCamera();
+  else controls.maxDistance = Math.max(fitDistance() * 1.35, 45);
+});
+
+/* =====================================================================
+   10. Selection, hover, toolbar, measurement
+   ===================================================================== */
+const ui = {
+  toolbar: document.getElementById('toolbar'),
+  name: document.getElementById('tbName'),
+  h: document.getElementById('tbH'),
+  d: document.getElementById('tbD'),
+  xyz: document.getElementById('tbXYZ'),
+  stateBtns: [...document.querySelectorAll('.tb-states button')],
+  moveBtn: document.querySelector('[data-act="move"]'),
+  dupBtn: document.querySelector('[data-act="duplicate"]'),
+  count: document.getElementById('count'),
+  add: document.getElementById('add'),
+  mute: document.getElementById('mute'),
+  hint: document.getElementById('hint'),
+  toast: document.getElementById('toast'),
+};
+let selected = null, hovered = null, moveMode = false;
+
+// Pink selection ring that sits on the grass under the selected sheep.
+const selRing = new THREE.Mesh(new THREE.RingGeometry(0.78, 0.92, 40).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: '#ff9fb4', transparent: true, opacity: 0.85, depthWrite: false }));
+selRing.visible = false;
+scene.add(selRing);
+
+// Move-mode preview ring that follows the pointer over the ground.
+const placeRing = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.64, 32).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: '#8fd39a', transparent: true, opacity: 0.9, depthWrite: false }));
+placeRing.visible = false;
+scene.add(placeRing);
+
+// Dashed measuring line from the origin marker to the selected sheep, hugging the ground.
+const MEASURE_PTS = 32;
+const measureGeo = new THREE.BufferGeometry().setFromPoints(Array.from({ length: MEASURE_PTS }, () => new THREE.Vector3()));
+const measureLine = new THREE.Line(measureGeo, new THREE.LineDashedMaterial({ color: '#e0738c', dashSize: 0.18, gapSize: 0.12, transparent: true, opacity: 0.9 }));
+measureLine.visible = false;
+measureLine.frustumCulled = false;
+scene.add(measureLine);
+
+function select(s) {
+  if (selected === s) return;
+  selected = s;
+  setMoveMode(false);
+  if (s) {
+    ui.name.textContent = s.name;
+    s.ears[0] = s.ears[1] = 1; s.wag = 1;
+    sound.baa(s.scale);
+    dismissHint();
+  }
+  ui.toolbar.classList.toggle('show', !!s);
+  selRing.visible = measureLine.visible = !!s;
+}
+
+function setMoveMode(on) {
+  moveMode = on && !!selected;
+  ui.moveBtn.classList.toggle('active', moveMode);
+  ui.toolbar.classList.toggle('placing', moveMode);
+  renderer.domElement.classList.toggle('placing', moveMode);
+  if (!moveMode) placeRing.visible = false;
+}
+
+let toastTimer = 0;
+function toast(msg) {
+  ui.toast.textContent = msg;
+  ui.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 2200);
+}
+
+function updateCount() {
+  const n = sheepList.filter((s) => s.fx?.type !== 'out').length;
+  ui.count.textContent = `${n} sheep`;
+  ui.add.disabled = n >= MAX_SHEEP;
+  ui.dupBtn.disabled = n >= MAX_SHEEP;
+}
+
+// --- Toolbar actions ---
+function act(action) {
+  const s = selected;
+  if (action === 'close') return select(null);
+  if (!s || s.fx?.type === 'out') return;
+  switch (action) {
+    case 'idle': s.setState('idle', 8); break;
+    case 'graze': s.setState('graze', 10); break;
+    case 'walk': {
+      const t = s.findTarget(2.5, 6) || s.findTarget(0.8, 3);
+      if (t) s.walkTo(t.x, t.z, 1.15); else toast(`${s.name} has nowhere to wander right now`);
+      break;
+    }
+    case 'jump': s.jump(); break;
+    case 'move': setMoveMode(!moveMode); break;
+    case 'duplicate': duplicate(s); break;
+    case 'delete': removeSheep(s); break;
+  }
+}
+
+function duplicate(s) {
+  if (sheepList.length >= MAX_SHEEP) return toast(`The meadow is full (${MAX_SHEEP} sheep)`);
+  // Look for room right next to it, nearest first.
+  for (const r of [1.3, 1.7, 2.2, 2.8]) {
+    const a0 = rnd(0, TAU);
+    for (let k = 0; k < 12; k++) {
+      const a = a0 + (k / 12) * TAU, x = s.x + Math.sin(a) * r, z = s.z + Math.cos(a) * r;
+      if (!walkable(x, z) || sheepList.some((o) => Math.hypot(o.x - x, o.z - z) < 1.05)) continue;
+      const copy = spawnSheep({ x, z, tint: s.tint, heading: s.heading + rnd(-0.6, 0.6), scale: clamp(s.scale * rnd(0.84, 1.16), 0.75, 1.3) }, 'in');
+      puff(x, groundY(x, z) + 0.4, z, 8, 0.8);
+      sound.pop(1.2 / copy.scale);
+      return;
+    }
+  }
+  toast(`No room next to ${s.name}`);
+}
+
+function addSheep() {
+  if (sheepList.length >= MAX_SHEEP) return toast(`The meadow is full (${MAX_SHEEP} sheep)`);
+  const spot = findFreeSpot();
+  if (!spot) return toast('No free grass left');
+  spawnSheep({ x: spot.x, z: spot.z }, 'drop');
+  dismissHint();
+}
+
+ui.toolbar.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (b && !b.disabled) { sound.ensure(); act(b.dataset.act); }
+});
+ui.add.addEventListener('click', () => { sound.ensure(); addSheep(); });
+function renderMute() {
+  ui.mute.querySelector('.wave').style.display = sound.muted ? 'none' : '';
+  ui.mute.querySelector('.cross').style.display = sound.muted ? '' : 'none';
+  ui.mute.setAttribute('aria-label', sound.muted ? 'Sound off' : 'Sound on');
+}
+ui.mute.addEventListener('click', () => { sound.ensure(); sound.setMuted(!sound.muted); renderMute(); if (!sound.muted) sound.pop(1); });
+renderMute();
+
+// --- Pointer: click (not drag) selects; hover highlights ---
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let pointerIn = false, pointerDirty = false, down = null;
+const canvas = renderer.domElement;
+function setNdc(e) { ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); }
+function pickSheep() {
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(sheepList.filter((s) => s.fx?.type !== 'out').map((s) => s.hit), false);
+  return hits.length ? hits[0].object.userData.sheep : null;
+}
+function pickGround() {
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObject(terrain, false)[0];
+  return hit ? hit.point : null;
+}
+canvas.addEventListener('pointerdown', (e) => {
+  sound.ensure();
+  down = { x: e.clientX, y: e.clientY, t: performance.now() };
+});
+canvas.addEventListener('pointermove', (e) => { setNdc(e); pointerIn = true; pointerDirty = true; });
+canvas.addEventListener('pointerleave', () => { pointerIn = false; pointerDirty = true; });
+canvas.addEventListener('pointerup', (e) => {
+  if (!down) return;
+  const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), quick = performance.now() - down.t < 700;
+  down = null;
+  if (moved > 6 || !quick) return; // that was an orbit drag, not a click
+  setNdc(e);
+  if (moveMode) return placeSelected();
+  select(pickSheep());
+});
+
+function placeSelected() {
+  const s = selected, p = pickGround();
+  if (!p) return setMoveMode(false);
+  if (!walkable(p.x, p.z)) {
+    sound.bonk();
+    toast(roadDist(p.x, p.z) < ROAD_HW + 0.6 ? 'Sheep stay off the road — pick some grass'
+      : streamDist(p.x, p.z) < STREAM_BANK + 0.4 ? "Sheep don't swim — pick some grass"
+      : 'Not enough room there — try open grass');
+    return;
+  }
+  if (pathClear(s.x, s.z, p.x, p.z)) s.walkTo(p.x, p.z, 1.3); // same patch: trot over
+  else teleportSheep(s, p.x, p.z);                            // across water or road: poof
+  setMoveMode(false);
+}
+
+addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, textarea')) return;
+  if (e.key === 'Escape') { if (moveMode) setMoveMode(false); else select(null); return; }
+  if (!selected) return;
+  const map = { 1: 'idle', 2: 'graze', 3: 'walk', 4: 'jump', m: 'move', d: 'duplicate', Delete: 'delete', Backspace: 'delete' };
+  const a = map[e.key] || map[e.key.toLowerCase?.()];
+  if (a) { e.preventDefault(); sound.ensure(); act(a); }
+});
+
+// --- Hint fades after a few seconds ---
+let hintGone = false;
+function dismissHint() { if (!hintGone) { hintGone = true; ui.hint.classList.add('gone'); } }
+setTimeout(dismissHint, 6500);
+
+// --- Toolbar tracking: anchor above the sheep's head, flip below if it would leave the screen ---
+const anchor = new THREE.Vector3();
+let lastReadout = '';
+function updateToolbar() {
+  const s = selected;
+  if (!s) return;
+  const S = s.scale;
+  anchor.set(s.x, groundY(s.x, s.z) + (s.lift.position.y + BODY_Y + 0.75) * S, s.z).project(camera);
+  const sx = (anchor.x * 0.5 + 0.5) * innerWidth, sy = (-anchor.y * 0.5 + 0.5) * innerHeight;
+  const w = ui.toolbar.offsetWidth, h = ui.toolbar.offsetHeight;
+  let left = clamp(sx - w / 2, 8, innerWidth - w - 8);
+  let top = sy - h - 14;
+  let below = false;
+  if (top < 8) {
+    anchor.set(s.x, groundY(s.x, s.z) - 0.1, s.z).project(camera);
+    top = (-anchor.y * 0.5 + 0.5) * innerHeight + 16;
+    below = true;
+  }
+  top = clamp(top, 8, innerHeight - h - 8);
+  ui.toolbar.style.transform = `translate3d(${left.toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
+  ui.toolbar.classList.toggle('below', below);
+  ui.toolbar.style.setProperty('--arrow-x', `${clamp(sx - left, 18, w - 18).toFixed(0)}px`);
+
+  // Live readout, written only when it changes.
+  const height = s.measureHeight();
+  const dist = Math.hypot(s.x - MARKER.x, s.z - MARKER.z);
+  const readout = `${height.toFixed(2)}|${dist.toFixed(2)}|${s.x.toFixed(2)}|${s.z.toFixed(2)}|${s.state}`;
+  if (readout !== lastReadout) {
+    lastReadout = readout;
+    ui.h.textContent = height.toFixed(2);
+    ui.d.textContent = dist.toFixed(2);
+    ui.xyz.textContent = `x ${s.x.toFixed(2)} · z ${s.z.toFixed(2)}`;
+    ui.stateBtns.forEach((b) => b.classList.toggle('active', b.dataset.act === s.state));
+  }
+}
+
+function updateMeasure(t) {
+  const s = selected;
+  if (!s) return;
+  const pos = measureGeo.attributes.position;
+  for (let i = 0; i < MEASURE_PTS; i++) {
+    const u = i / (MEASURE_PTS - 1);
+    const x = lerp(MARKER.x, s.x, u), z = lerp(MARKER.z, s.z, u);
+    pos.setXYZ(i, x, Math.max(groundY(x, z), WATER_Y) + 0.07, z);
+  }
+  pos.needsUpdate = true;
+  measureGeo.computeBoundingSphere();
+  measureLine.computeLineDistances();
+  const S = s.scale * (1 + Math.sin(t * 4) * 0.04);
+  selRing.position.set(s.x, groundY(s.x, s.z) + 0.05, s.z);
+  selRing.scale.setScalar(S);
+}
+
+/* =====================================================================
+   11. Initial flock
+   ===================================================================== */
+{
+  const initial = [];
+  // Seeded so the opening composition is always pleasant; at least one sheep per patch of grass.
+  for (let tries = 0; initial.length < 7 && tries < 4000; tries++) {
+    const x = rr(-HX, HX), z = rr(-HZ, HZ);
+    if (!walkable(x, z) || initial.some((p) => Math.hypot(p.x - x, p.z - z) < 2.2)) continue;
+    const reg = regionOf(x, z);
+    const regionsSoFar = new Set(initial.map((p) => p.reg));
+    if (initial.length >= 3 && regionsSoFar.size < 4 && regionsSoFar.has(reg)) continue;
+    initial.push({ x, z, reg });
+  }
+  initial.forEach((p) => spawnSheep({ x: p.x, z: p.z, scale: rr(0.86, 1.14), heading: rr(0, TAU), tint: pick(WOOL_TINTS, rng) }));
+}
+
+/* =====================================================================
+   12. Main loop
+   ===================================================================== */
+const clock = new THREE.Clock();
+let elapsed = 0, frame = 0;
+const ndcTmp = new THREE.Vector3();
+
+function step(dt) {
+  elapsed += dt;
+  const t = elapsed;
+  waterUniforms.uTime.value = t;
+
+  // Clouds drift and wrap; high ones project soft shadows onto the meadow.
+  let si = 0;
+  for (const c of clouds) {
+    c.mesh.position.x += c.speed * dt;
+    if (c.mesh.position.x > 34) c.mesh.position.x = -34;
+    c.mesh.position.y += Math.sin(t * 0.3 + c.speed * 20) * 0.002;
+    if (c.shadow && si < MAX_CLOUD_SHADOWS) {
+      const p = c.mesh.position, k = p.y / SUN_DIR.y;
+      cloudShadowUniform.value[si++].set(p.x - SUN_DIR.x * k, p.z - SUN_DIR.z * k, c.radius);
+    }
+    // A cloud passing in front of the selected sheep turns see-through.
+    let fade = 1;
+    if (selected && c.shadow) {
+      ndcTmp.copy(c.mesh.position).project(camera);
+      anchor.set(selected.x, groundY(selected.x, selected.z) + 0.6, selected.z).project(camera);
+      if (Math.hypot(ndcTmp.x - anchor.x, (ndcTmp.y - anchor.y) / camera.aspect) < 0.22) fade = 0.3;
+    }
+    c.fade = damp(c.fade, fade, 4, dt);
+    c.mesh.material.opacity = 0.94 * c.fade;
+  }
+
+  // Canopies sway almost imperceptibly; the marker's pennant flutters.
+  for (const s of swaying) {
+    if (s.userData.flag) { s.rotation.y = Math.sin(t * 3.1) * 0.25; continue; }
+    s.rotation.z = Math.sin(t * 0.7 + s.userData.phase) * 0.018;
+    s.rotation.x = Math.sin(t * 0.5 + s.userData.phase * 1.3) * 0.012;
+  }
+  for (const i of islets) i.g.position.y = i.y + Math.sin(t * 0.4 + i.ph) * 0.3;
+  for (const b of butterflies) {
+    const x = b.cx + Math.sin(t * 0.31 + b.ph) * 3.2, z = b.cz + Math.sin(t * 0.47 + b.ph * 2) * 2.2;
+    const nx = b.cx + Math.sin((t + 0.05) * 0.31 + b.ph) * 3.2, nz = b.cz + Math.sin((t + 0.05) * 0.47 + b.ph * 2) * 2.2;
+    b.g.position.set(x, Math.max(groundY(x, z), 0) + 0.9 + Math.sin(t * 1.7 + b.ph) * 0.3, z);
+    b.g.rotation.y = Math.atan2(nx - x, nz - z) + Math.PI / 2;
+    const flap = Math.sin(t * 16 + b.ph) * 0.9;
+    b.l.rotation.z = flap; b.r.rotation.z = -flap;
+  }
+
+  for (const s of [...sheepList]) s.update(dt, t);
+  updateParticles(dt);
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  step(dt);
+  const t = elapsed;
+  frame++;
+
+  // Hover: re-pick when the pointer moved, and every few frames since sheep wander under it.
+  if (pointerIn && !down && (pointerDirty || frame % 6 === 0)) {
+    pointerDirty = false;
+    hovered = moveMode ? null : pickSheep();
+    canvas.classList.toggle('hovering', !!hovered);
+    if (moveMode) {
+      const p = pickGround();
+      placeRing.visible = !!p;
+      if (p) {
+        placeRing.position.set(p.x, Math.max(p.y, WATER_Y) + 0.06, p.z);
+        placeRing.material.color.set(walkable(p.x, p.z) ? '#8fd39a' : '#f29b9b');
+      }
+    }
+  } else if (!pointerIn && hovered) { hovered = null; canvas.classList.remove('hovering'); }
+
+  for (const s of sheepList) {
+    const on = s === selected || s === hovered;
+    s.hull.visible = on;
+    if (on) s.hull.material = s === selected ? HULL_SELECT : HULL_HOVER;
+  }
+
+  // Keep the camera target over the island when panning.
+  controls.target.x = clamp(controls.target.x, -HX + 2, HX - 2);
+  controls.target.z = clamp(controls.target.z, -HZ + 1.5, HZ - 1.5);
+  controls.target.y = -1.3;
+  controls.update();
+  sky.position.copy(camera.position);
+
+  updateMeasure(t);
+  updateToolbar();
+  renderer.render(scene, camera);
+}
+loop();
+
+/* =====================================================================
+   13. Test hook: lets an automated browser check the walkability rule.
+       Inert unless called; nothing in the UI uses it.
+   ===================================================================== */
+window.__meadow = {
+  sheep: () => sheepList.map((s) => ({ name: s.name, x: +s.x.toFixed(3), z: +s.z.toFixed(3), state: s.state, scale: +s.scale.toFixed(3), region: s.region })),
+  select: (i) => select(sheepList[i] ?? null),
+  act,
+  addSheep,
+  // Advance the simulation without rendering and count any moment a sheep stood on forbidden ground.
+  simulate(seconds, dt = 1 / 60) {
+    let bad = 0, regionChanges = 0;
+    const startRegions = new Map(sheepList.map((s) => [s, s.region]));
+    for (let i = 0; i < seconds / dt; i++) {
+      step(dt);
+      for (const s of sheepList) {
+        if (s.fx) continue;
+        if (streamDist(s.x, s.z) < STREAM_BANK || roadDist(s.x, s.z) < ROAD_HW + 0.2 || sdIsland(s.x, s.z) > -0.3) bad++;
+        if (startRegions.has(s) && regionOf(s.x, s.z) !== startRegions.get(s)) regionChanges++;
+      }
+    }
+    return { bad, regionChanges, states: sheepList.map((s) => s.state) };
+  },
+  walkable,
+  // Where sheep i (or a ground point) appears on screen, for synthetic clicks.
+  screenOf(i, gx, gz) {
+    const s = sheepList[i];
+    const v = s ? new THREE.Vector3(s.x, groundY(s.x, s.z) + BODY_Y * s.scale, s.z) : new THREE.Vector3(gx, groundY(gx, gz), gz);
+    v.project(camera);
+    return { x: (v.x * 0.5 + 0.5) * innerWidth, y: (-v.y * 0.5 + 0.5) * innerHeight };
+  },
+  get selected() { return selected?.name ?? null; },
+  get moveMode() { return moveMode; },
+  // Point the camera somewhere specific (counts as the user having moved it).
+  view(px, py, pz, tx, tz) {
+    userMovedCamera = true;
+    controls.minDistance = 1;
+    controls.target.set(tx, -1.3, tz);
+    camera.position.set(px, py, pz);
+    controls.update();
+  },
+};
+</script>
+</body>
+</html>
